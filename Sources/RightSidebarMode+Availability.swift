@@ -14,6 +14,8 @@ extension RightSidebarMode {
             return .feed
         case "dock":
             return .dock
+        case "agent-queue", "agentqueue", "queue":
+            return .agentQueue
         default:
             return nil
         }
@@ -39,7 +41,7 @@ extension RightSidebarMode {
 
     func isAvailable(feedEnabled: Bool, dockEnabled: Bool) -> Bool {
         switch self {
-        case .files, .find, .sessions:
+        case .files, .find, .sessions, .agentQueue:
             return true
         case .feed:
             return feedEnabled

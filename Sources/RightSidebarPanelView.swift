@@ -19,6 +19,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case sessions
     case feed
     case dock
+    case agentQueue = "agent-queue"
     case customSidebar = "custom-sidebar"
 
     var label: String {
@@ -28,6 +29,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
+        case .agentQueue: return String(localized: "rightSidebar.mode.agentQueue", defaultValue: "Agent Queue")
         case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
         }
     }
@@ -39,6 +41,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return "books.vertical"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
+        case .agentQueue: return "list.bullet.rectangle"
         case .customSidebar: return "wand.and.stars"
         }
     }
@@ -50,6 +53,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
+        case .agentQueue: return nil
         case .customSidebar: return nil
         }
     }
@@ -75,7 +79,7 @@ nonisolated enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .customSidebar:
+        case .sessions, .feed, .dock, .agentQueue, .customSidebar:
             return false
         }
     }
@@ -401,6 +405,17 @@ struct RightSidebarPanelView: View {
                 FeedPanelView()
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
+            case .agentQueue:
+                if let workspace = tabManager.selectedWorkspace {
+                    AgentQueueSidebarView(
+                        controller: AgentQueueControllerFactory.shared.controller(
+                            workspace: workspace,
+                            tabManager: tabManager
+                        )
+                    )
+                } else {
+                    Color.clear
+                }
             case .customSidebar:
                 EmptyView()
             }

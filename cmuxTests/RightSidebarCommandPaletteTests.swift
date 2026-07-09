@@ -37,7 +37,14 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 XCTAssertTrue(contribution.enablement(context))
             }
 
-            XCTAssertEqual(contributions.count, 3)
+            XCTAssertEqual(contributions.count, 4)
+            let agentQueueContribution = try XCTUnwrap(
+                contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.agentQueue)]
+            )
+            XCTAssertTrue(agentQueueContribution.keywords.contains("agent"))
+            XCTAssertTrue(agentQueueContribution.keywords.contains("queue"))
+            XCTAssertTrue(agentQueueContribution.keywords.contains("worker"))
+            XCTAssertTrue(agentQueueContribution.keywords.contains("planner"))
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
         }

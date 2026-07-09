@@ -59,6 +59,7 @@
 		A70600000000000000000001 /* AgentQueuePaneAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70600000000000000000002 /* AgentQueuePaneAdapterTests.swift */; };
 		A70300000000000000000003 /* AgentQueueReportDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70300000000000000000004 /* AgentQueueReportDetector.swift */; };
 		A70300000000000000000001 /* AgentQueueReportDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70300000000000000000002 /* AgentQueueReportDetectorTests.swift */; };
+		A70800000000000000000003 /* AgentQueueSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70800000000000000000004 /* AgentQueueSidebarView.swift */; };
 		A70500000000000000000003 /* AgentQueueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70500000000000000000004 /* AgentQueueStore.swift */; };
 		A70500000000000000000001 /* AgentQueueStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70500000000000000000002 /* AgentQueueStoreTests.swift */; };
 		D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */; };
@@ -1711,6 +1712,7 @@
 		A70600000000000000000002 /* AgentQueuePaneAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentQueuePaneAdapterTests.swift; sourceTree = "<group>"; };
 		A70300000000000000000004 /* AgentQueueReportDetector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueReportDetector.swift; sourceTree = "<group>"; };
 		A70300000000000000000002 /* AgentQueueReportDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentQueueReportDetectorTests.swift; sourceTree = "<group>"; };
+		A70800000000000000000004 /* AgentQueueSidebarView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueSidebarView.swift; sourceTree = "<group>"; };
 		A70500000000000000000004 /* AgentQueueStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueStore.swift; sourceTree = "<group>"; };
 		A70500000000000000000002 /* AgentQueueStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentQueueStoreTests.swift; sourceTree = "<group>"; };
 		D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSettingsTests.swift; sourceTree = "<group>"; };
@@ -4357,6 +4359,7 @@
 				A70500000000000000000004 /* AgentQueueStore.swift */,
 				A70600000000000000000004 /* AgentQueuePaneAdapter.swift */,
 				A70700000000000000000004 /* AgentQueueController.swift */,
+				A70800000000000000000004 /* AgentQueueSidebarView.swift */,
 				59065015952E1B5BE5E23519 /* Mobile */,
 				31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */,
 			);
@@ -5334,6 +5337,7 @@
 				A70100000000000000000003 /* AgentQueueModels.swift in Sources */,
 				A70600000000000000000003 /* AgentQueuePaneAdapter.swift in Sources */,
 				A70300000000000000000003 /* AgentQueueReportDetector.swift in Sources */,
+				A70800000000000000000003 /* AgentQueueSidebarView.swift in Sources */,
 				A70500000000000000000003 /* AgentQueueStore.swift in Sources */,
 				A9E020000000000000000008 /* AgentSessionBridge.swift in Sources */,
 				A9F20000000000000000000B /* AgentSessionBridgeError.swift in Sources */,

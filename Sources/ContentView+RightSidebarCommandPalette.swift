@@ -104,11 +104,15 @@ extension ContentView {
 
         return RightSidebarMode.availableModes().map { mode in
             let title = mode.shortcutAction?.label ?? mode.label
+            var keywords = ["right", "sidebar", "show", "switch", "focus", mode.rawValue]
+            if mode == .agentQueue {
+                keywords.append(contentsOf: ["agent", "queue", "worker", "planner"])
+            }
             return CommandPaletteCommandContribution(
                 commandId: Self.commandPaletteRightSidebarModeCommandID(mode),
                 title: constant(title),
                 subtitle: constant(String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")),
-                keywords: ["right", "sidebar", "show", "switch", "focus", mode.rawValue]
+                keywords: keywords
             )
         }
     }
@@ -140,6 +144,8 @@ extension ContentView {
             return "palette.showRightSidebarFeed"
         case .dock:
             return "palette.showRightSidebarDock"
+        case .agentQueue:
+            return "palette.showRightSidebarAgentQueue"
         case .customSidebar:
             return "palette.showRightSidebarCustomSidebar"
         }
@@ -163,7 +169,7 @@ extension ContentView {
             return "palette.openFindPane"
         case .sessions:
             return "palette.openVaultPane"
-        case .feed, .dock, .customSidebar:
+        case .feed, .dock, .agentQueue, .customSidebar:
             return nil
         }
     }
@@ -176,7 +182,7 @@ extension ContentView {
             return String(localized: "command.openFindPane.title", defaultValue: "Open Find as Pane")
         case .sessions:
             return String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane")
-        case .feed, .dock, .customSidebar:
+        case .feed, .dock, .agentQueue, .customSidebar:
             return nil
         }
     }

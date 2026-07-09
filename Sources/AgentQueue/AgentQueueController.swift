@@ -187,3 +187,58 @@ final class AgentQueueController: ObservableObject {
         return "\(collapsed.prefix(80))…"
     }
 }
+
+@MainActor
+final class AgentQueueControllerFactory {
+    static let shared = AgentQueueControllerFactory()
+
+    private var controllers: [UUID: AgentQueueController] = [:]
+    private let store = AgentQueueStore()
+
+    func controller(workspace: Workspace, tabManager: TabManager) -> AgentQueueController {
+        if let existing = controllers[workspace.id] {
+            return existing
+        }
+
+        let currentNow = Date()
+        let plannerSurfaceID = workspace.focusedPanelId
+            ?? workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }.first
+            ?? UUID()
+        let queue = AgentQueue(
+            id: "queue-\(workspace.id.uuidString.lowercased())",
+            workspaceID: workspace.id,
+            plannerSurfaceID: plannerSurfaceID,
+            status: .paused,
+            createdAt: currentNow,
+            updatedAt: currentNow
+        )
+        let workers = workspace.panels.keys
+            .filter { $0 != plannerSurfaceID }
+            .sorted { $0.uuidString < $1.uuidString }
+            .enumerated()
+            .map { index, surfaceID in
+                AgentWorker(
+                    id: "worker-\(index + 1)",
+                    workspaceID: workspace.id,
+                    paneID: surfaceID,
+                    surfaceID: surfaceID,
+                    label: String.localizedStringWithFormat(
+                        String(localized: "agentQueue.worker.defaultLabelFormat", defaultValue: "Worker %d"),
+                        index + 1
+                    ),
+                    enabled: true,
+                    status: .idle,
+                    currentTaskID: nil,
+                    lastSeenAt: currentNow
+                )
+            }
+
+        let controller = AgentQueueController(
+            initialState: AgentQueueState(queue: queue, tasks: [], workers: workers, events: []),
+            paneAdapter: AppAgentQueuePaneAdapter(tabManager: tabManager),
+            store: store
+        )
+        controllers[workspace.id] = controller
+        return controller
+    }
+}
