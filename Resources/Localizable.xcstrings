@@ -230611,6 +230611,381 @@
           }
         }
       }
+    },
+    "agentQueue.instruction.worker": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함해 planner pane으로 보고하세요.\n자기 pane에만 보고하지 마세요.\n보고를 전송한 뒤 반드시 Enter로 제출하세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nplanner_surface_id: surface:%@\nworker_surface_id: surface:%@\nreport_target: planner\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+          }
+        }
+      }
+    },
+    "agentQueue.instruction.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 요청 [%@]:\n이 task의 보고가 planner pane에서 감지되지 않았습니다.\n현재 상태를 아래 중 하나로 즉시 보고하세요:\n- completed: 완료 보고 전문\n- blocked: 막힌 이유\n- running: 현재 진행 상황과 예상 남은 작업\n반드시 planner surface:%@ 로 전송하고 Enter 제출하세요.\n"
+          }
+        }
+      }
+    },
+    "agentQueue.instruction.correction": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 위치 교정 [%@]:\n완료 보고는 자기 pane이 아니라 planner surface:%@ 로 전송해야 합니다.\n다음 작업부터는 완료 보고를 전송한 뒤 Enter로 제출하세요.\n"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

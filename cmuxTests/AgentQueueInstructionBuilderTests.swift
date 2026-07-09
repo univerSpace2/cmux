@@ -58,6 +58,20 @@ final class AgentQueueInstructionBuilderTests: XCTestCase {
         XCTAssertTrue(text.contains("- running: 현재 진행 상황과 예상 남은 작업"))
         XCTAssertTrue(text.contains("planner surface:22222222-2222-2222-2222-222222222222"))
     }
+
+    func testCorrectionPromptDirectsReportToPlannerSurface() {
+        let planner = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+
+        let text = AgentQueueInstructionBuilder.correctionPrompt(
+            taskID: "T-20260709-0008",
+            plannerSurfaceID: planner
+        )
+
+        XCTAssertTrue(text.contains("보고 위치 교정 [T-20260709-0008]"))
+        XCTAssertTrue(text.contains("완료 보고는 자기 pane이 아니라 planner surface:22222222-2222-2222-2222-222222222222 로 전송해야 합니다."))
+        XCTAssertTrue(text.contains("Enter로 제출하세요."))
+        XCTAssertTrue(text.hasSuffix("\n"))
+    }
 }
 
 private extension AgentTask {
