@@ -69,6 +69,14 @@ final class AgentQueueController: ObservableObject {
         persistSoon()
     }
 
+    func setExecutionMode(taskID: String, mode: AgentTaskExecutionMode) {
+        guard let index = state.tasks.firstIndex(where: { $0.id == taskID }) else { return }
+        guard state.tasks[index].status == .queued else { return }
+
+        state.tasks[index].executionMode = mode
+        persistSoon()
+    }
+
     func start() async {
         await apply(.queueStarted)
     }

@@ -36,6 +36,33 @@ final class AgentQueueCoreTests: XCTestCase {
         XCTAssertEqual(result.state.tasks[1].status, .queued)
     }
 
+    func testParallelAllowedTasksDispatchToAllIdleWorkersUntilSequentialBoundary() {
+        var fixture = AgentQueueCoreFixture.make(taskCount: 4, workerCount: 3)
+        fixture.state.tasks[0].executionMode = .parallelAllowed
+        fixture.state.tasks[1].executionMode = .parallelAllowed
+        fixture.state.tasks[2].executionMode = .sequential
+        fixture.state.tasks[3].executionMode = .parallelAllowed
+
+        let result = AgentQueueCore.reduce(
+            state: fixture.state,
+            event: .queueStarted,
+            now: fixture.now
+        )
+
+        XCTAssertEqual(
+            result.effects.filter {
+                if case .dispatch = $0 { return true }
+                return false
+            },
+            [
+                .dispatch(taskID: "T-20260709-0001", workerID: "worker-1"),
+                .dispatch(taskID: "T-20260709-0002", workerID: "worker-2"),
+            ]
+        )
+        XCTAssertEqual(result.state.tasks[2].status, .queued)
+        XCTAssertEqual(result.state.tasks[3].status, .queued)
+    }
+
     func testCompletedReportDispatchesNextTask() {
         var fixture = AgentQueueCoreFixture.make(taskCount: 2, workerCount: 1)
         fixture.state.queue.status = .running

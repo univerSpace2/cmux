@@ -147,20 +147,52 @@ enum AgentQueueCore {
         guard !activeTaskExists else {
             return []
         }
-        guard let taskIndex = state.tasks.firstIndex(where: { $0.status == .queued }) else {
+        let idleWorkerIndices = state.workers.indices.filter {
+            state.workers[$0].enabled && state.workers[$0].status == .idle
+        }
+        guard !idleWorkerIndices.isEmpty else {
             return []
         }
-        guard let workerIndex = state.workers.firstIndex(where: { $0.enabled && $0.status == .idle }) else {
+        guard let firstQueuedIndex = state.tasks.firstIndex(where: { $0.status == .queued }) else {
             return []
         }
 
-        let taskID = state.tasks[taskIndex].id
-        let workerID = state.workers[workerIndex].id
+        if state.tasks[firstQueuedIndex].executionMode == .sequential {
+            let workerIndex = idleWorkerIndices[0]
+            let taskID = state.tasks[firstQueuedIndex].id
+            let workerID = state.workers[workerIndex].id
+            markAssigned(taskIndex: firstQueuedIndex, workerIndex: workerIndex, state: &state, now: now)
+            return [.dispatch(taskID: taskID, workerID: workerID)]
+        }
+
+        var effects: [AgentQueueSideEffect] = []
+        var workerCursor = 0
+        var taskIndex = firstQueuedIndex
+        while taskIndex < state.tasks.count,
+              workerCursor < idleWorkerIndices.count,
+              state.tasks[taskIndex].status == .queued,
+              state.tasks[taskIndex].executionMode == .parallelAllowed {
+            let workerIndex = idleWorkerIndices[workerCursor]
+            let taskID = state.tasks[taskIndex].id
+            let workerID = state.workers[workerIndex].id
+            markAssigned(taskIndex: taskIndex, workerIndex: workerIndex, state: &state, now: now)
+            effects.append(.dispatch(taskID: taskID, workerID: workerID))
+            workerCursor += 1
+            taskIndex += 1
+        }
+        return effects
+    }
+
+    private static func markAssigned(
+        taskIndex: Int,
+        workerIndex: Int,
+        state: inout AgentQueueState,
+        now: Date
+    ) {
         state.tasks[taskIndex].status = .dispatching
         state.workers[workerIndex].status = .assigned
-        state.workers[workerIndex].currentTaskID = taskID
+        state.workers[workerIndex].currentTaskID = state.tasks[taskIndex].id
         state.workers[workerIndex].lastSeenAt = now
-        return [.dispatch(taskID: taskID, workerID: workerID)]
     }
 
     private static func releaseWorker(

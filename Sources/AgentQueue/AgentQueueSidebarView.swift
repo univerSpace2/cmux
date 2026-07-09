@@ -4,8 +4,10 @@ import SwiftUI
 private struct AgentQueueTaskRowSnapshot: Identifiable, Equatable {
     var id: String
     var title: String
+    var status: AgentTaskStatus
     var statusText: String
     var executionModeText: String
+    var isParallelAllowed: Bool
     var workerLabel: String
     var retryText: String
 }
@@ -34,8 +36,10 @@ struct AgentQueueSidebarView: View {
             AgentQueueTaskRowSnapshot(
                 id: task.id,
                 title: task.title,
+                status: task.status,
                 statusText: AgentQueueDisplayText.taskStatus(task.status),
                 executionModeText: AgentQueueDisplayText.executionMode(task.executionMode),
+                isParallelAllowed: task.executionMode == .parallelAllowed,
                 workerLabel: task.assignedWorkerSurfaceID.flatMap { workersBySurface[$0] }
                     ?? String(localized: "agentQueue.task.unassignedWorker", defaultValue: "-"),
                 retryText: "\(task.recoveryAttemptCount)/\(task.retryLimit)"
@@ -124,7 +128,12 @@ struct AgentQueueSidebarView: View {
                 .font(.subheadline.weight(.semibold))
             LazyVStack(spacing: 6) {
                 ForEach(taskRows) { row in
-                    AgentQueueTaskRow(row: row)
+                    AgentQueueTaskRow(row: row) { enabled in
+                        controller.setExecutionMode(
+                            taskID: row.id,
+                            mode: enabled ? .parallelAllowed : .sequential
+                        )
+                    }
                 }
             }
         }
@@ -157,6 +166,7 @@ struct AgentQueueSidebarView: View {
 
 private struct AgentQueueTaskRow: View {
     let row: AgentQueueTaskRowSnapshot
+    let onToggleParallel: (Bool) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -184,6 +194,14 @@ private struct AgentQueueTaskRow: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+            Toggle(
+                String(localized: "agentQueue.task.parallelAllowed", defaultValue: "Parallel allowed"),
+                isOn: Binding(
+                    get: { row.isParallelAllowed },
+                    set: onToggleParallel
+                )
+            )
+            .disabled(row.status != .queued)
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
