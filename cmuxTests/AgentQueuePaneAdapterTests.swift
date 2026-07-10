@@ -100,6 +100,33 @@ final class AgentQueuePaneAdapterTests: XCTestCase {
         )
     }
 
+    func testCodexReadinessCanIgnoreStaleObservedIdleUntilSubmittedPromptStarts() {
+        XCTAssertEqual(
+            AgentQueueCodexReadinessClassifier.classify(
+                observedState: .idle,
+                shellActivity: .commandRunning,
+                observedIdleAllowed: false
+            ),
+            .starting
+        )
+        XCTAssertEqual(
+            AgentQueueCodexReadinessClassifier.classify(
+                observedState: .working,
+                shellActivity: .commandRunning,
+                observedIdleAllowed: false
+            ),
+            .busy
+        )
+        XCTAssertEqual(
+            AgentQueueCodexReadinessClassifier.classify(
+                observedState: .idle,
+                shellActivity: .commandRunning,
+                observedIdleAllowed: true
+            ),
+            .idle
+        )
+    }
+
     func testPaneAdapterErrorsExposeSurfaceIDInDescriptions() {
         let surfaceID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
 
