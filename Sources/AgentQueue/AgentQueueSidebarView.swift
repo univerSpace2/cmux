@@ -1,26 +1,9 @@
 import Foundation
 import SwiftUI
 
-struct AgentQueueSkillRowSnapshot: Identifiable, Equatable, Sendable {
-    let id: String
-    let name: String
-    let sourcePath: String
-
-    init(selection: AgentQueueSkillSelection) {
-        id = selection.sourcePath
-        name = selection.name
-        sourcePath = selection.sourcePath
-    }
-
-    var selection: AgentQueueSkillSelection {
-        AgentQueueSkillSelection(name: name, sourcePath: sourcePath)
-    }
-}
-
 struct AgentQueuePreparationSnapshot: Equatable, Sendable {
     let workerCount: Int
-    let selectedSkillID: String?
-    let additionalSkillText: String
+    let profiles: [AgentQueueAgentProfileSnapshot]
     let phase: AgentQueuePreparationPhase
     let phaseText: String
     let progressText: String?
@@ -28,8 +11,15 @@ struct AgentQueuePreparationSnapshot: Equatable, Sendable {
     let showsRetry: Bool
     let isPreparing: Bool
     let isStartDisabled: Bool
+    let isWorkerCountDecreaseDisabled: Bool
+    let isWorkerCountIncreaseDisabled: Bool
 
-    init(preparation: AgentQueuePreparationState?, canStart: Bool) {
+    init(
+        preparation: AgentQueuePreparationState?,
+        canStart: Bool,
+        canEditProfiles: Bool = true,
+        hasActiveWork: Bool = false
+    ) {
         let preparation = preparation ?? AgentQueuePreparationState(
             configuration: .defaultConfiguration,
             phase: .notPrepared,
@@ -37,15 +27,23 @@ struct AgentQueuePreparationSnapshot: Equatable, Sendable {
             errorMessage: nil
         )
         workerCount = preparation.configuration.workerCount
-        selectedSkillID = preparation.configuration.additionalSkill?.id
-        additionalSkillText = preparation.configuration.additionalSkill?.name
-            ?? String(localized: "agentQueue.preparation.skill.none", defaultValue: "None")
+        profiles = preparation.configuration.activeAgentIDs.compactMap { agentID in
+            guard let profile = preparation.configuration.profile(id: agentID) else { return nil }
+            return AgentQueueAgentProfileSnapshot(
+                profile: profile,
+                record: preparation.record(agentID: agentID),
+                isEditingDisabled: !canEditProfiles,
+                isReady: preparation.isReady(agentID: agentID)
+            )
+        }
         phase = preparation.phase
         phaseText = AgentQueueDisplayText.preparationPhase(preparation.phase)
         errorMessage = preparation.errorMessage
         showsRetry = preparation.phase == .failed
         isPreparing = preparation.phase.isInProgress
         isStartDisabled = !canStart
+        isWorkerCountDecreaseDisabled = isPreparing || hasActiveWork || workerCount <= 1
+        isWorkerCountIncreaseDisabled = isPreparing || workerCount >= 4
 
         switch preparation.phase {
         case .startingWorkers, .applyingSkills, .waitingForIdle:
@@ -98,16 +96,10 @@ struct AgentQueueSidebarView: View {
     private var preparationSnapshot: AgentQueuePreparationSnapshot {
         AgentQueuePreparationSnapshot(
             preparation: controller.state.preparation,
-            canStart: controller.canStart
+            canStart: controller.canStart,
+            canEditProfiles: controller.canEditProfiles,
+            hasActiveWork: controller.hasActiveWork
         )
-    }
-
-    private var displayedSkillRows: [AgentQueueSkillRowSnapshot] {
-        guard let selected = controller.state.preparation?.configuration.additionalSkill else {
-            return skillRows
-        }
-        guard !skillRows.contains(where: { $0.id == selected.id }) else { return skillRows }
-        return [AgentQueueSkillRowSnapshot(selection: selected)] + skillRows
     }
 
     private var skillConfirmationMessage: String {
@@ -189,7 +181,7 @@ struct AgentQueueSidebarView: View {
                 showingSkillConfirmation = true
             }
         }
-        .onChange(of: controller.state.preparation?.phase) { phase in
+        .onChange(of: controller.state.preparation?.phase) { _, phase in
             if phase == .awaitingSkillConfirmation {
                 showingSkillConfirmation = true
             }
@@ -244,15 +236,35 @@ struct AgentQueueSidebarView: View {
             Text(String(localized: "agentQueue.preparation.title", defaultValue: "Worker preparation"))
                 .font(.subheadline.weight(.semibold))
 
-            Stepper(value: workerCountBinding, in: 1...4) {
-                HStack {
-                    Text(String(localized: "agentQueue.preparation.workerCount", defaultValue: "Worker count"))
-                    Spacer()
-                    Text(snapshot.workerCount, format: .number)
-                        .monospacedDigit()
+            HStack {
+                Text(String(localized: "agentQueue.preparation.workerCount", defaultValue: "Worker count"))
+                Spacer()
+                Button {
+                    controller.setWorkerCount(snapshot.workerCount - 1)
+                } label: {
+                    Image(systemName: "minus.circle")
                 }
+                .buttonStyle(.plain)
+                .disabled(snapshot.isWorkerCountDecreaseDisabled)
+                .accessibilityLabel(
+                    String(localized: "agentQueue.preparation.workerCount.decrease", defaultValue: "Worker 줄이기")
+                )
+
+                Text(snapshot.workerCount, format: .number)
+                    .monospacedDigit()
+                    .frame(minWidth: 20)
+
+                Button {
+                    controller.setWorkerCount(snapshot.workerCount + 1)
+                } label: {
+                    Image(systemName: "plus.circle")
+                }
+                .buttonStyle(.plain)
+                .disabled(snapshot.isWorkerCountIncreaseDisabled)
+                .accessibilityLabel(
+                    String(localized: "agentQueue.preparation.workerCount.increase", defaultValue: "Worker 늘리기")
+                )
             }
-            .disabled(snapshot.isPreparing)
 
             TextField(
                 String(
@@ -264,35 +276,17 @@ struct AgentQueueSidebarView: View {
             .textFieldStyle(.roundedBorder)
             .disabled(snapshot.isPreparing)
 
-            Menu {
-                Button(String(localized: "agentQueue.preparation.skill.none", defaultValue: "None")) {
-                    setAdditionalSkill(nil)
-                }
-                Divider()
-                ForEach(displayedSkillRows) { row in
-                    Button {
-                        setAdditionalSkill(row.selection)
-                    } label: {
-                        VStack(alignment: .leading) {
-                            Text(row.name)
-                            Text(row.sourcePath)
-                        }
-                    }
-                }
-            } label: {
-                HStack {
-                    Text(String(localized: "agentQueue.preparation.additionalSkill", defaultValue: "Additional skill"))
-                    Spacer()
-                    Text(snapshot.additionalSkillText)
-                        .lineLimit(1)
-                        .foregroundStyle(.secondary)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            LazyVStack(spacing: 8) {
+                ForEach(snapshot.profiles) { profile in
+                    AgentQueueAgentProfileCard(
+                        snapshot: profile,
+                        skillOptions: availableSkillRows(for: profile),
+                        onAddSkill: { controller.addSkill($0, to: profile.id) },
+                        onRemoveSkill: { controller.removeSkill(sourcePath: $0, from: profile.id) },
+                        onRolePromptChange: { controller.setRolePrompt($0, for: profile.id) }
+                    )
                 }
             }
-            .disabled(snapshot.isPreparing)
-            .accessibilityIdentifier("AgentQueue.additionalSkill")
 
             HStack(spacing: 8) {
                 Button(
@@ -302,7 +296,7 @@ struct AgentQueueSidebarView: View {
                 ) {
                     Task { await controller.prepareWorkers(allowSkillChanges: false) }
                 }
-                .disabled(snapshot.isPreparing)
+                .disabled(snapshot.isPreparing || controller.hasActiveWork)
 
                 if snapshot.isPreparing {
                     ProgressView()
@@ -404,28 +398,11 @@ struct AgentQueueSidebarView: View {
         }
     }
 
-    private var workerCountBinding: Binding<Int> {
-        Binding(
-            get: { preparationSnapshot.workerCount },
-            set: setWorkerCount
-        )
-    }
-
-    private func setWorkerCount(_ workerCount: Int) {
-        let additionalSkill = controller.state.preparation?.configuration.additionalSkill
-        guard let configuration = try? AgentQueuePreparationConfiguration(
-            workerCount: workerCount,
-            additionalSkill: additionalSkill
-        ) else { return }
-        controller.setPreparationConfiguration(configuration)
-    }
-
-    private func setAdditionalSkill(_ additionalSkill: AgentQueueSkillSelection?) {
-        guard let configuration = try? AgentQueuePreparationConfiguration(
-            workerCount: preparationSnapshot.workerCount,
-            additionalSkill: additionalSkill
-        ) else { return }
-        controller.setPreparationConfiguration(configuration)
+    private func availableSkillRows(
+        for profile: AgentQueueAgentProfileSnapshot
+    ) -> [AgentQueueSkillRowSnapshot] {
+        let selectedIDs = Set(profile.additionalSkills.map(\.id))
+        return skillRows.filter { !selectedIDs.contains($0.id) }
     }
 }
 

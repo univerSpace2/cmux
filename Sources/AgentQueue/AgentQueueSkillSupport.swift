@@ -215,15 +215,6 @@ enum AgentQueueSkillPromptBuilder {
         "$\(AgentQueueRoleSkill.planner.rawValue)"
     }
 
-    static func workerPrompt(additionalSkill: AgentQueueSkillSelection?) -> String {
-        [
-            "$\(AgentQueueRoleSkill.worker.rawValue)",
-            additionalSkill?.invocation,
-        ]
-        .compactMap { $0 }
-        .joined(separator: " ")
-    }
-
     static func prompt(
         role: AgentQueueRoleSkill,
         profile: AgentQueueAgentProfile
@@ -238,12 +229,5 @@ enum AgentQueueSkillPromptBuilder {
         \(rolePrompt)
         [/AGENT_QUEUE_ROLE]
         """
-    }
-
-    static func workerPrompts(configuration: AgentQueuePreparationConfiguration) -> [String] {
-        Array(
-            repeating: workerPrompt(additionalSkill: configuration.additionalSkill),
-            count: configuration.workerCount
-        )
     }
 }

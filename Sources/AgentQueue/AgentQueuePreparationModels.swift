@@ -85,18 +85,6 @@ struct AgentQueuePreparationConfiguration: Codable, Equatable, Sendable {
         self.workerProfiles = workerProfiles
     }
 
-    init(workerCount: Int, additionalSkill: AgentQueueSkillSelection?) throws {
-        let workerProfiles = AgentQueueAgentProfile.defaultWorkers.map { profile in
-            guard let additionalSkill else { return profile }
-            return profile.addingSkill(additionalSkill)
-        }
-        try self.init(
-            workerCount: workerCount,
-            plannerProfile: .planner,
-            workerProfiles: workerProfiles
-        )
-    }
-
     static let defaultConfiguration = try! AgentQueuePreparationConfiguration(
         workerCount: 1,
         plannerProfile: .planner,
@@ -105,10 +93,6 @@ struct AgentQueuePreparationConfiguration: Codable, Equatable, Sendable {
 
     var activeAgentIDs: [String] {
         [AgentQueueAgentID.planner] + Array(AgentQueueAgentID.workerIDs.prefix(workerCount))
-    }
-
-    var additionalSkill: AgentQueueSkillSelection? {
-        workerProfiles.first?.additionalSkills.first
     }
 
     func profile(id: String) -> AgentQueueAgentProfile? {
@@ -163,12 +147,18 @@ struct AgentQueuePreparationConfiguration: Codable, Equatable, Sendable {
                 workerProfiles: container.decode([AgentQueueAgentProfile].self, forKey: .workerProfiles)
             )
         } else {
+            let additionalSkill = try container.decodeIfPresent(
+                AgentQueueSkillSelection.self,
+                forKey: .additionalSkill
+            )
+            let workerProfiles = AgentQueueAgentProfile.defaultWorkers.map { profile in
+                guard let additionalSkill else { return profile }
+                return profile.addingSkill(additionalSkill)
+            }
             try self.init(
                 workerCount: workerCount,
-                additionalSkill: container.decodeIfPresent(
-                    AgentQueueSkillSelection.self,
-                    forKey: .additionalSkill
-                )
+                plannerProfile: .planner,
+                workerProfiles: workerProfiles
             )
         }
     }

@@ -253,6 +253,13 @@ final class AgentQueueController: ObservableObject {
                     agentIDsToPrepare.insert(agentID)
                 }
             }
+            for agentID in agentIDsToPrepare {
+                var record = preparation.record(agentID: agentID) ??
+                    preparationRecord(agentID: agentID)
+                record.phase = .preparing
+                record.errorMessage = nil
+                preparation = preparation.replacingRecord(record)
+            }
             state.preparation = preparation
 
             let requiresWorkerReconciliation = workerSlotsRequireReconciliation(configuration: configuration)
@@ -283,11 +290,10 @@ final class AgentQueueController: ObservableObject {
                 activeWorkerAgentIDs: activeWorkerAgentIDs,
                 agentIDsToPrepare: agentIDsToPrepare,
                 progress: { [weak self] progress in
-                    self?.updatePreparation(
+                    self?.updatePreparationProgress(
+                        progress,
                         configuration: configuration,
-                        phase: progress.phase,
-                        completedWorkerCount: progress.completedWorkerCount,
-                        errorMessage: nil
+                        agentIDsToPrepare: agentIDsToPrepare
                     )
                 }
             )
@@ -911,6 +917,27 @@ final class AgentQueueController: ObservableObject {
         preparation.phase = phase
         preparation.completedWorkerCount = completedWorkerCount
         preparation.errorMessage = errorMessage
+        state.preparation = preparation
+    }
+
+    private func updatePreparationProgress(
+        _ progress: AgentQueuePreparationProgress,
+        configuration: AgentQueuePreparationConfiguration,
+        agentIDsToPrepare: Set<String>
+    ) {
+        updatePreparation(
+            configuration: configuration,
+            phase: progress.phase,
+            completedWorkerCount: progress.completedWorkerCount,
+            errorMessage: nil
+        )
+        guard let currentAgentID = progress.agentID,
+              var preparation = state.preparation else { return }
+        for agentID in agentIDsToPrepare {
+            var record = preparation.record(agentID: agentID) ?? preparationRecord(agentID: agentID)
+            record.phase = agentID == currentAgentID ? .preparing : .notPrepared
+            preparation = preparation.replacingRecord(record)
+        }
         state.preparation = preparation
     }
 
