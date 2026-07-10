@@ -45,6 +45,41 @@ final class AgentQueuePaneAdapterTests: XCTestCase {
         )
     }
 
+    func testCodexReadinessUsesVisibleReadyScreenBeforeTranscriptExists() {
+        let readyScreen = """
+        ╭─────────────────────────────────────────────────╮
+        │ >_ OpenAI Codex (v0.144.1)                      │
+        ╰─────────────────────────────────────────────────╯
+        › Explain this codebase
+        gpt-5.6-sol xhigh · ~/coding-universe/zmux/cmux · Ready · Workspace · Approve for me
+        """
+
+        XCTAssertEqual(
+            AgentQueueCodexReadinessClassifier.classify(
+                observedState: nil,
+                shellActivity: .commandRunning,
+                visibleText: readyScreen
+            ),
+            .idle
+        )
+        XCTAssertEqual(
+            AgentQueueCodexReadinessClassifier.classify(
+                observedState: nil,
+                shellActivity: .commandRunning,
+                visibleText: "OpenAI Codex\nWorking (12s • esc to interrupt)"
+            ),
+            .starting
+        )
+        XCTAssertEqual(
+            AgentQueueCodexReadinessClassifier.classify(
+                observedState: nil,
+                shellActivity: .promptIdle,
+                visibleText: readyScreen
+            ),
+            .absent
+        )
+    }
+
     func testPaneAdapterErrorsExposeSurfaceIDInDescriptions() {
         let surfaceID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
 
