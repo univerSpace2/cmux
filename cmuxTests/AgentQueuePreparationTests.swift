@@ -117,6 +117,32 @@ final class AgentQueuePreparationTests: XCTestCase {
     }
 
     @MainActor
+    func testNewWorkerDoesNotResubmitCodexWhileInitialCommandStarts() async throws {
+        let planner = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+        let worker = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
+        let driver = FakeAgentQueueWorkspaceDriver(
+            plannerSurfaceID: planner,
+            createdWorkerSurfaceIDs: [worker]
+        )
+        driver.createdWorkerShellActivity = .promptIdle
+        driver.readinessSequences[planner] = [.idle, .busy, .idle]
+        driver.readinessSequences[worker] = [.absent, .starting, .idle, .busy, .idle]
+
+        _ = try await makePreparationService(driver: driver).prepare(
+            configuration: .defaultConfiguration,
+            plannerSurfaceID: planner,
+            existingWorkerSurfaceIDs: [],
+            activeWorkerSurfaceIDs: [],
+            progress: { _, _ in }
+        )
+
+        XCTAssertEqual(
+            driver.sentTexts.filter { $0.surfaceID == worker }.map(\.text),
+            ["$cmux-agent-queue-worker"]
+        )
+    }
+
+    @MainActor
     func testPreparationAppliesSameOptionalSkillToEveryWorker() async throws {
         let planner = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
         let firstWorker = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
@@ -414,6 +440,7 @@ private final class FakeAgentQueueWorkspaceDriver: AgentQueueWorkspaceDriving {
     var createdSplits: [AgentQueueWorkerSplitRequest] = []
     var closedSurfaceIDs: [UUID] = []
     var createdWorkerSurfaceIDs: [UUID]
+    var createdWorkerShellActivity: AgentQueueShellActivity = .commandRunning
     let workingDirectory: String
 
     init(
@@ -440,7 +467,7 @@ private final class FakeAgentQueueWorkspaceDriver: AgentQueueWorkspaceDriving {
         guard !createdWorkerSurfaceIDs.isEmpty else { return nil }
         let surfaceID = createdWorkerSurfaceIDs.removeFirst()
         terminalSurfaceIDs.insert(surfaceID)
-        shellActivityBySurface[surfaceID] = .commandRunning
+        shellActivityBySurface[surfaceID] = createdWorkerShellActivity
         return surfaceID
     }
 
