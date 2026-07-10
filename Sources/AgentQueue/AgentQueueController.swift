@@ -85,6 +85,23 @@ final class AgentQueueController: ObservableObject {
         }
     }
 
+    var canRequestPlan: Bool {
+        guard !isPreparationInProgress,
+              let preparation = state.preparation,
+              preparation.isReady(agentID: AgentQueueAgentID.planner),
+              preparation.record(agentID: AgentQueueAgentID.planner)?.surfaceID ==
+                state.queue.plannerSurfaceID else {
+            return false
+        }
+
+        switch state.planningRequest?.phase {
+        case .submitting, .waitingForPlanner:
+            return false
+        case .failed, nil:
+            return true
+        }
+    }
+
     var hasActiveWork: Bool {
         state.tasks.contains { task in
             switch task.status {
@@ -514,6 +531,60 @@ final class AgentQueueController: ObservableObject {
         persistSoon()
     }
 
+    @discardableResult
+    func requestPlan(for goal: String) async -> Bool {
+        let normalizedGoal = goal.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedGoal.isEmpty,
+              canRequestPlan,
+              let plannerProfile = state.preparation?.configuration.profile(
+                  id: AgentQueueAgentID.planner
+              ) else {
+            return false
+        }
+
+        let requestID = UUID()
+        let createdAt = now()
+        state.planningRequest = AgentQueuePlanningRequest(
+            requestID: requestID,
+            goal: normalizedGoal,
+            phase: .submitting,
+            createdAt: createdAt,
+            errorMessage: nil
+        )
+        state.queue.updatedAt = createdAt
+        persistSoon()
+
+        let prompt = AgentQueueInstructionBuilder.plannerRequest(
+            goal: normalizedGoal,
+            requestID: requestID,
+            profile: plannerProfile
+        )
+        do {
+            _ = try await paneAdapter.submitText(prompt, to: state.queue.plannerSurfaceID)
+            guard state.planningRequest?.requestID == requestID else { return false }
+            state.planningRequest?.phase = .waitingForPlanner
+            state.planningRequest?.errorMessage = nil
+            state.queue.updatedAt = now()
+            persistSoon()
+            return true
+        } catch {
+            guard state.planningRequest?.requestID == requestID else { return false }
+            state.planningRequest?.phase = .failed
+            state.planningRequest?.errorMessage = planningSubmissionErrorMessage(error)
+            state.queue.updatedAt = now()
+            persistSoon()
+            return false
+        }
+    }
+
+    @discardableResult
+    func retryPlanningRequest() async -> Bool {
+        guard let request = state.planningRequest, request.phase == .failed else {
+            return false
+        }
+        return await requestPlan(for: request.goal)
+    }
+
     func setExecutionMode(taskID: String, mode: AgentTaskExecutionMode) {
         guard let index = state.tasks.firstIndex(where: { $0.id == taskID }) else { return }
         guard state.tasks[index].status == .queued else { return }
@@ -545,7 +616,7 @@ final class AgentQueueController: ObservableObject {
                 }
 
                 guard !Task.isCancelled, let self else { return }
-                guard self.hasActiveTasks else { continue }
+                guard self.hasActiveTasks || self.isWaitingForPlanner else { continue }
                 await self.pollReportsOnce(now: self.now())
             }
         }
@@ -578,6 +649,9 @@ final class AgentQueueController: ObservableObject {
         for surfaceID in surfaces {
             guard let snapshot = try? await paneAdapter.readText(surfaceID: surfaceID, lines: 80) else {
                 continue
+            }
+            if surfaceID == state.queue.plannerSurfaceID {
+                importPlannerTasks(from: snapshot.text)
             }
             let reports = AgentQueueReportDetector.detect(
                 in: snapshot.text,
@@ -1032,6 +1106,10 @@ final class AgentQueueController: ObservableObject {
         hasActiveWork
     }
 
+    private var isWaitingForPlanner: Bool {
+        state.planningRequest?.phase == .waitingForPlanner
+    }
+
     private var isPreparationInProgress: Bool {
         guard let phase = state.preparation?.phase else { return false }
         switch phase {
@@ -1045,6 +1123,93 @@ final class AgentQueueController: ObservableObject {
         case .notPrepared, .ready, .failed:
             return false
         }
+    }
+
+    private func importPlannerTasks(from text: String) {
+        guard var request = state.planningRequest,
+              request.phase == .waitingForPlanner,
+              let detection = AgentQueuePlanDetector.detect(in: text) else {
+            return
+        }
+
+        switch detection {
+        case .success(let planned):
+            guard planned.requestID == request.requestID else { return }
+            let currentNow = now()
+            let tasks = planned.tasks.map { plannedTask in
+                let id = AgentTaskIDFactory.makeTaskID(now: currentNow, sequence: nextSequence)
+                nextSequence += 1
+                return AgentTask(
+                    id: id,
+                    queueID: state.queue.id,
+                    title: plannedTask.title,
+                    body: plannedTask.body,
+                    status: .queued,
+                    executionMode: .sequential,
+                    assignedWorkerSurfaceID: nil,
+                    dispatchAttemptCount: 0,
+                    recoveryAttemptCount: 0,
+                    timeoutSeconds: 1_800,
+                    retryLimit: 3,
+                    createdAt: currentNow,
+                    dispatchedAt: nil,
+                    completedAt: nil,
+                    lastError: nil
+                )
+            }
+            state.tasks.append(contentsOf: tasks)
+            state.events.append(contentsOf: tasks.map { task in
+                AgentQueueLogEvent(
+                    id: UUID().uuidString,
+                    queueID: state.queue.id,
+                    taskID: task.id,
+                    workerID: nil,
+                    type: .taskCreated,
+                    message: "created \(task.id)",
+                    evidence: nil,
+                    createdAt: currentNow
+                )
+            })
+            state.planningRequest = nil
+            state.queue.updatedAt = currentNow
+            persistSoon()
+
+        case .failure(let error):
+            request.phase = .failed
+            request.errorMessage = planningResponseErrorMessage(error)
+            state.planningRequest = request
+            state.queue.updatedAt = now()
+            persistSoon()
+        }
+    }
+
+    private func planningSubmissionErrorMessage(_ error: Error) -> String {
+        String(
+            format: String(
+                localized: "agentQueue.input.submissionFailed",
+                defaultValue: "Could not send the goal to Planner: %@"
+            ),
+            error.localizedDescription
+        )
+    }
+
+    private func planningResponseErrorMessage(_ error: AgentQueuePlanDetectionError) -> String {
+        let detail: String
+        switch error {
+        case .malformedJSON:
+            detail = "malformed_json"
+        case .emptyTasks:
+            detail = "empty_tasks"
+        case .invalidTask(let index):
+            detail = "invalid_task_\(index)"
+        }
+        return String(
+            format: String(
+                localized: "agentQueue.input.responseFailed",
+                defaultValue: "Could not import the Planner response: %@"
+            ),
+            detail
+        )
     }
 
     private func makeFingerprint(taskID: String, surfaceID: UUID, excerpt: String) -> ReportFingerprint {
