@@ -32,7 +32,7 @@ final class AgentQueueStoreTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = AgentQueueStore(rootDirectory: directory)
-        var state = AgentQueueStoreFixture.state(eventCount: 0)
+        var state = AgentQueueStoreFixture.state(eventCount: 1)
         var workerFour = AgentQueueAgentProfile.worker(index: 3)
         workerFour.rolePrompt = "Preserve this hidden specialist role."
         let configuration = try AgentQueuePreparationConfiguration.defaultConfiguration

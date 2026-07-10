@@ -1,5 +1,11 @@
 import Foundation
 
+enum AgentQueueSkillPath {
+    static func normalize(_ path: String) -> String {
+        (path as NSString).standardizingPath
+    }
+}
+
 enum AgentQueueRoleSkill: String, CaseIterable, Equatable, Sendable {
     case planner = "cmux-agent-queue-planner"
     case worker = "cmux-agent-queue-worker"

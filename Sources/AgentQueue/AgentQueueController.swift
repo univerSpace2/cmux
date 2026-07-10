@@ -509,6 +509,11 @@ final class AgentQueueController: ObservableObject {
                 ),
                 count
             )
+        case .invalidAgentProfiles:
+            return String(
+                localized: "agentQueue.preparation.error.invalidProfiles",
+                defaultValue: "Agent profile configuration is invalid."
+            )
         case let .activeWorkerWouldClose(surfaceID):
             return String(
                 format: String(
