@@ -25,6 +25,152 @@ final class AgentQueueControllerTests: XCTestCase {
         XCTAssertEqual(controller.state.tasks.first?.status, .awaitingReport)
     }
 
+    func testRequestPlanSubmitsGoalAndWaitsForPlanner() async throws {
+        let fixture = AgentQueueControllerFixture()
+
+        let accepted = await fixture.controller.requestPlan(for: " Build search\nCover errors. ")
+
+        XCTAssertTrue(accepted)
+        XCTAssertFalse(fixture.controller.canRequestPlan)
+        let request = try XCTUnwrap(fixture.controller.state.planningRequest)
+        XCTAssertEqual(request.goal, "Build search\nCover errors.")
+        XCTAssertEqual(request.phase, .waitingForPlanner)
+        XCTAssertNil(request.errorMessage)
+        XCTAssertEqual(fixture.adapter.submittedTexts.count, 1)
+        XCTAssertEqual(fixture.adapter.submittedTexts[0].surfaceID, fixture.plannerSurfaceID)
+        XCTAssertTrue(
+            fixture.adapter.submittedTexts[0].text.contains(
+                "request_id: \(request.requestID.uuidString.lowercased())"
+            )
+        )
+        XCTAssertTrue(fixture.adapter.submittedTexts[0].text.contains(request.goal))
+    }
+
+    func testPlannerSubmissionFailureRetainsGoalAndRetryUsesANewRequestID() async throws {
+        let fixture = AgentQueueControllerFixture()
+        fixture.adapter.submitError = AgentQueuePaneAdapterError.surfaceUnavailable(
+            fixture.plannerSurfaceID
+        )
+
+        let firstAccepted = await fixture.controller.requestPlan(for: "Build search")
+        XCTAssertFalse(firstAccepted)
+        let failed = try XCTUnwrap(fixture.controller.state.planningRequest)
+        XCTAssertEqual(failed.goal, "Build search")
+        XCTAssertEqual(failed.phase, .failed)
+        XCTAssertNotNil(failed.errorMessage)
+        XCTAssertTrue(fixture.controller.canRequestPlan)
+
+        fixture.adapter.submitError = nil
+        let retryAccepted = await fixture.controller.retryPlanningRequest()
+        XCTAssertTrue(retryAccepted)
+        let retried = try XCTUnwrap(fixture.controller.state.planningRequest)
+        XCTAssertNotEqual(retried.requestID, failed.requestID)
+        XCTAssertEqual(retried.goal, failed.goal)
+        XCTAssertEqual(retried.phase, .waitingForPlanner)
+        XCTAssertEqual(fixture.adapter.submittedTexts.count, 2)
+    }
+
+    func testPlannerResponseImportsTasksAtomicallyAndOnlyOnce() async throws {
+        let fixture = AgentQueueControllerFixture()
+        let accepted = await fixture.controller.requestPlan(for: "Build search")
+        XCTAssertTrue(accepted)
+        let requestID = try XCTUnwrap(fixture.controller.state.planningRequest?.requestID)
+        fixture.adapter.textBySurface[fixture.plannerSurfaceID] = """
+        [AGENT_QUEUE_TASKS]
+        {"request_id":"\(requestID.uuidString.lowercased())","tasks":[
+          {"title":" Inspect repo ","body":" Read files. "},
+          {"title":"Implement","body":"Change code."}
+        ]}
+        [/AGENT_QUEUE_TASKS]
+        """
+
+        await fixture.controller.pollReportsOnce(now: fixture.now)
+
+        XCTAssertNil(fixture.controller.state.planningRequest)
+        XCTAssertEqual(fixture.controller.state.tasks.map(\.title), ["Inspect repo", "Implement"])
+        XCTAssertEqual(fixture.controller.state.tasks.map(\.body), ["Read files.", "Change code."])
+        XCTAssertEqual(fixture.controller.state.tasks.map(\.status), [.queued, .queued])
+        XCTAssertEqual(fixture.controller.state.tasks.map(\.executionMode), [.sequential, .sequential])
+        XCTAssertEqual(
+            fixture.controller.state.events.filter { $0.type == .taskCreated }.count,
+            2
+        )
+
+        await fixture.controller.pollReportsOnce(now: fixture.now.addingTimeInterval(1))
+
+        XCTAssertEqual(fixture.controller.state.tasks.count, 2)
+        XCTAssertEqual(
+            fixture.controller.state.events.filter { $0.type == .taskCreated }.count,
+            2
+        )
+    }
+
+    func testStalePlannerResponseIsIgnored() async throws {
+        let fixture = AgentQueueControllerFixture()
+        let accepted = await fixture.controller.requestPlan(for: "Build search")
+        XCTAssertTrue(accepted)
+        let pending = try XCTUnwrap(fixture.controller.state.planningRequest)
+        fixture.adapter.textBySurface[fixture.plannerSurfaceID] = """
+        [AGENT_QUEUE_TASKS]
+        {"request_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","tasks":[
+          {"title":"Stale","body":"Do not import"}
+        ]}
+        [/AGENT_QUEUE_TASKS]
+        """
+
+        await fixture.controller.pollReportsOnce(now: fixture.now)
+
+        XCTAssertEqual(fixture.controller.state.planningRequest, pending)
+        XCTAssertTrue(fixture.controller.state.tasks.isEmpty)
+    }
+
+    func testMalformedPlannerResponseFailsWithoutPartialTasks() async throws {
+        let fixture = AgentQueueControllerFixture()
+        let accepted = await fixture.controller.requestPlan(for: "Build search")
+        XCTAssertTrue(accepted)
+        fixture.adapter.textBySurface[fixture.plannerSurfaceID] = """
+        [AGENT_QUEUE_TASKS]
+        {not json}
+        [/AGENT_QUEUE_TASKS]
+        """
+
+        await fixture.controller.pollReportsOnce(now: fixture.now)
+
+        XCTAssertEqual(fixture.controller.state.planningRequest?.phase, .failed)
+        XCTAssertNotNil(fixture.controller.state.planningRequest?.errorMessage)
+        XCTAssertTrue(fixture.controller.state.tasks.isEmpty)
+    }
+
+    func testMonitoringPollsForPlannerResponseWithoutExistingTasks() async {
+        let fixture = AgentQueueControllerFixture(pollInterval: .milliseconds(10))
+        let accepted = await fixture.controller.requestPlan(for: "Build search")
+        XCTAssertTrue(accepted)
+
+        fixture.controller.startMonitoring()
+        for _ in 0..<50 {
+            if fixture.adapter.readCount > 0 { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        fixture.controller.stopMonitoring()
+
+        XCTAssertGreaterThan(fixture.adapter.readCount, 0)
+        XCTAssertTrue(fixture.controller.state.tasks.isEmpty)
+        XCTAssertEqual(
+            fixture.controller.state.planningRequest?.phase,
+            .waitingForPlanner
+        )
+    }
+
+    func testPlanRequestRequiresPreparedPlanner() async {
+        let fixture = AgentQueueControllerFixture(prepared: false)
+
+        XCTAssertFalse(fixture.controller.canRequestPlan)
+        let accepted = await fixture.controller.requestPlan(for: "Build search")
+        XCTAssertFalse(accepted)
+        XCTAssertTrue(fixture.adapter.submittedTexts.isEmpty)
+        XCTAssertNil(fixture.controller.state.planningRequest)
+    }
+
     func testWrongPaneReportIsForwardedToPlanner() async throws {
         var plannerProfile = AgentQueueAgentProfile.planner
         plannerProfile = plannerProfile.addingSkill(
