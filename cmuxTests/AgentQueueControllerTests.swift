@@ -181,7 +181,7 @@ private final class FakeAgentQueuePaneAdapter: AgentQueuePaneAdapting, @unchecke
 
     func readText(surfaceID: UUID, lines: Int) async throws -> AgentQueueSurfaceTextSnapshot {
         readCount += 1
-        AgentQueueSurfaceTextSnapshot(
+        return AgentQueueSurfaceTextSnapshot(
             surfaceID: surfaceID,
             text: textBySurface[surfaceID] ?? "",
             capturedAt: Date(timeIntervalSince1970: 1_782_998_400)
