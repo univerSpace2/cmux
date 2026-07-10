@@ -70,6 +70,7 @@ enum AgentQueuePromptSubmission {
 
 protocol AgentQueuePaneAdapting: AnyObject, Sendable {
     func submitText(_ text: String, to surfaceID: UUID) async throws -> AgentQueueSendResult
+    func submitShellCommand(_ command: String, to surfaceID: UUID) async throws -> AgentQueueSendResult
     func readText(surfaceID: UUID, lines: Int) async throws -> AgentQueueSurfaceTextSnapshot
     func codexReadiness(surfaceID: UUID) async -> AgentQueueCodexReadiness
 }
@@ -123,6 +124,41 @@ final class AppAgentQueuePaneAdapter: AgentQueuePaneAdapting {
             visibleReadyFallbackBlockedSurfaceIDs.insert(surfaceID)
         }
         return AgentQueueSendResult(surfaceID: surfaceID, queued: false)
+    }
+
+    func submitShellCommand(
+        _ command: String,
+        to surfaceID: UUID
+    ) async throws -> AgentQueueSendResult {
+        guard let terminalPanel = terminalPanel(surfaceID: surfaceID) else {
+            throw AgentQueuePaneAdapterError.surfaceNotTerminal(surfaceID)
+        }
+
+        let textQueued: Bool
+        switch terminalPanel.sendInputResult(command) {
+        case .sent:
+            textQueued = false
+        case .queued:
+            textQueued = true
+        case .inputQueueFull, .surfaceUnavailable, .processExited:
+            throw AgentQueuePaneAdapterError.surfaceUnavailable(surfaceID)
+        }
+
+        let enterQueued: Bool
+        switch terminalPanel.sendNamedKeyResult(TextBoxTerminalKey.returnKey.rawValue) {
+        case .sent:
+            enterQueued = false
+        case .queued:
+            enterQueued = true
+        case .unknownKey, .inputQueueFull, .surfaceUnavailable, .processExited:
+            throw AgentQueuePaneAdapterError.surfaceUnavailable(surfaceID)
+        }
+
+        terminalPanel.surface.forceRefresh(reason: "agentQueue.submitShellCommand")
+        return AgentQueueSendResult(
+            surfaceID: surfaceID,
+            queued: textQueued || enterQueued
+        )
     }
 
     func readText(surfaceID: UUID, lines: Int) async throws -> AgentQueueSurfaceTextSnapshot {

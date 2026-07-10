@@ -47,6 +47,7 @@ protocol AgentQueueWorkspaceDriving: AnyObject {
     func closeWorkerSurface(_ surfaceID: UUID) -> Bool
     func codexReadiness(surfaceID: UUID) async -> AgentQueueCodexReadiness
     func submitText(_ text: String, to surfaceID: UUID) async throws
+    func submitShellCommand(_ command: String, to surfaceID: UUID) async throws
 }
 
 @MainActor
@@ -186,7 +187,7 @@ final class AgentQueueWorkerPreparationService: AgentQueueWorkerPreparing {
                         completedWorkerCount: completedWorkerCount
                     )
                 )
-                try await submit(
+                try await submitPrompt(
                     AgentQueueSkillPromptBuilder.prompt(role: role, profile: profile),
                     to: surfaceID
                 )
@@ -241,7 +242,7 @@ final class AgentQueueWorkerPreparationService: AgentQueueWorkerPreparing {
             guard driver.shellActivity(surfaceID: surfaceID) == .promptIdle else {
                 throw AgentQueuePreparationError.plannerBusy
             }
-            try await submit("codex", to: surfaceID)
+            try await driver.submitShellCommand("codex", to: surfaceID)
             try await waitForIdle(surfaceID: surfaceID)
         }
     }
@@ -252,7 +253,7 @@ final class AgentQueueWorkerPreparationService: AgentQueueWorkerPreparing {
         }
         if launchCodexAfterShellReady {
             try await waitForShellPrompt(surfaceID: surfaceID)
-            try await submit("codex", to: surfaceID)
+            try await driver.submitShellCommand("codex", to: surfaceID)
             try await waitForIdle(surfaceID: surfaceID)
             return
         }
@@ -266,7 +267,7 @@ final class AgentQueueWorkerPreparationService: AgentQueueWorkerPreparing {
                 try await waitForIdle(surfaceID: surfaceID)
                 return
             }
-            try await submit("codex", to: surfaceID)
+            try await driver.submitShellCommand("codex", to: surfaceID)
             try await waitForIdle(surfaceID: surfaceID)
         }
     }
@@ -288,7 +289,7 @@ final class AgentQueueWorkerPreparationService: AgentQueueWorkerPreparing {
         throw AgentQueuePreparationError.codexReadinessTimedOut(surfaceID)
     }
 
-    private func submit(_ text: String, to surfaceID: UUID) async throws {
+    private func submitPrompt(_ text: String, to surfaceID: UUID) async throws {
         try await driver.submitText(text, to: surfaceID)
     }
 
@@ -363,5 +364,9 @@ final class AppAgentQueueWorkspaceDriver: AgentQueueWorkspaceDriving {
 
     func submitText(_ text: String, to surfaceID: UUID) async throws {
         _ = try await paneAdapter.submitText(text, to: surfaceID)
+    }
+
+    func submitShellCommand(_ command: String, to surfaceID: UUID) async throws {
+        _ = try await paneAdapter.submitShellCommand(command, to: surfaceID)
     }
 }

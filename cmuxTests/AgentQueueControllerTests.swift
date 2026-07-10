@@ -1084,6 +1084,13 @@ private final class FakeAgentQueuePaneAdapter: AgentQueuePaneAdapting, @unchecke
         return AgentQueueSendResult(surfaceID: surfaceID, queued: false)
     }
 
+    func submitShellCommand(
+        _ command: String,
+        to surfaceID: UUID
+    ) async throws -> AgentQueueSendResult {
+        AgentQueueSendResult(surfaceID: surfaceID, queued: false)
+    }
+
     func readText(surfaceID: UUID, lines: Int) async throws -> AgentQueueSurfaceTextSnapshot {
         readCount += 1
         if unavailableSurfaceIDs.contains(surfaceID) {
