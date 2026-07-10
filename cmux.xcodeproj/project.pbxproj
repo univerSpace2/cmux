@@ -61,6 +61,7 @@
 		A70300000000000000000003 /* AgentQueueReportDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70300000000000000000004 /* AgentQueueReportDetector.swift */; };
 		A70300000000000000000001 /* AgentQueueReportDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70300000000000000000002 /* AgentQueueReportDetectorTests.swift */; };
 		A70800000000000000000003 /* AgentQueueSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70800000000000000000004 /* AgentQueueSidebarView.swift */; };
+		A70A00000000000000000001 /* AgentQueueSkillSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70A00000000000000000002 /* AgentQueueSkillSupport.swift */; };
 		A70500000000000000000003 /* AgentQueueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70500000000000000000004 /* AgentQueueStore.swift */; };
 		A70500000000000000000001 /* AgentQueueStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70500000000000000000002 /* AgentQueueStoreTests.swift */; };
 		D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */; };
@@ -345,6 +346,8 @@
 		C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00020000000000000002 /* CloudVMActionLauncher.swift */; };
 		C75740010000000000000001 /* CloudVMMenuItemMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75740010000000000000002 /* CloudVMMenuItemMetricsTests.swift */; };
 		B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
+		A70B00000000000000000001 /* cmux-agent-queue-planner in Resources */ = {isa = PBXBuildFile; fileRef = A70B00000000000000000002 /* cmux-agent-queue-planner */; };
+		A70C00000000000000000001 /* cmux-agent-queue-worker in Resources */ = {isa = PBXBuildFile; fileRef = A70C00000000000000000002 /* cmux-agent-queue-worker */; };
 		C1ADE20002A1B2C3D4E5F719 /* cmux-claude-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE20001A1B2C3D4E5F719 /* cmux-claude-wrapper */; };
 		C1ADE30002A1B2C3D4E5F719 /* cmux-codex-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE30001A1B2C3D4E5F719 /* cmux-codex-wrapper */; };
 		A5001623 /* cmux.sdef in Resources */ = {isa = PBXBuildFile; fileRef = A5001622 /* cmux.sdef */; };
@@ -1715,6 +1718,7 @@
 		A70300000000000000000004 /* AgentQueueReportDetector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueReportDetector.swift; sourceTree = "<group>"; };
 		A70300000000000000000002 /* AgentQueueReportDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentQueueReportDetectorTests.swift; sourceTree = "<group>"; };
 		A70800000000000000000004 /* AgentQueueSidebarView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueSidebarView.swift; sourceTree = "<group>"; };
+		A70A00000000000000000002 /* AgentQueueSkillSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueSkillSupport.swift; sourceTree = "<group>"; };
 		A70500000000000000000004 /* AgentQueueStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueStore.swift; sourceTree = "<group>"; };
 		A70500000000000000000002 /* AgentQueueStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentQueueStoreTests.swift; sourceTree = "<group>"; };
 		D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSettingsTests.swift; sourceTree = "<group>"; };
@@ -1998,6 +2002,8 @@
 		C10D00020000000000000002 /* CloudVMActionLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMActionLauncher.swift; sourceTree = "<group>"; };
 		C75740010000000000000002 /* CloudVMMenuItemMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMMenuItemMetricsTests.swift; sourceTree = "<group>"; };
 		B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
+		A70B00000000000000000002 /* cmux-agent-queue-planner */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "cmux-agent-queue-planner"; sourceTree = "<group>"; };
+		A70C00000000000000000002 /* cmux-agent-queue-worker */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "cmux-agent-queue-worker"; sourceTree = "<group>"; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
 		C1ADE20001A1B2C3D4E5F719 /* cmux-claude-wrapper */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-claude-wrapper"; sourceTree = SOURCE_ROOT; };
 		C1ADE30001A1B2C3D4E5F719 /* cmux-codex-wrapper */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-codex-wrapper"; sourceTree = SOURCE_ROOT; };
@@ -3440,6 +3446,7 @@
 		A5001040 = {
 			isa = PBXGroup;
 			children = (
+				A70D00000000000000000001 /* skills */,
 				A5001041 /* Sources */,
 				B9000003A1B2C3D4E5F60719 /* CLI */,
 				087C454FFF74443AB06942C3 /* Resources */,
@@ -4362,10 +4369,20 @@
 				A70600000000000000000004 /* AgentQueuePaneAdapter.swift */,
 				A70700000000000000000004 /* AgentQueueController.swift */,
 				A70800000000000000000004 /* AgentQueueSidebarView.swift */,
+				A70A00000000000000000002 /* AgentQueueSkillSupport.swift */,
 				59065015952E1B5BE5E23519 /* Mobile */,
 				31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */,
 			);
 			path = Sources;
+			sourceTree = "<group>";
+		};
+		A70D00000000000000000001 /* skills */ = {
+			isa = PBXGroup;
+			children = (
+				A70B00000000000000000002 /* cmux-agent-queue-planner */,
+				A70C00000000000000000002 /* cmux-agent-queue-worker */,
+			);
+			path = skills;
 			sourceTree = "<group>";
 		};
 		CA52D0010000000000000000 /* Canvas */ = {
@@ -5167,6 +5184,8 @@
 				A9E020000000000000000006 /* agent-session-react in Resources */,
 				A9E020000000000000000007 /* agent-session-solid in Resources */,
 				A5001100 /* Assets.xcassets in Resources */,
+				A70B00000000000000000001 /* cmux-agent-queue-planner in Resources */,
+				A70C00000000000000000001 /* cmux-agent-queue-worker in Resources */,
 				A5001623 /* cmux.sdef in Resources */,
 				FEED0A00000000000000F007 /* feed-tui in Resources */,
 				DA7A10CA710E000000000004 /* InfoPlist.xcstrings in Resources */,
@@ -5341,6 +5360,7 @@
 				A70600000000000000000003 /* AgentQueuePaneAdapter.swift in Sources */,
 				A70300000000000000000003 /* AgentQueueReportDetector.swift in Sources */,
 				A70800000000000000000003 /* AgentQueueSidebarView.swift in Sources */,
+				A70A00000000000000000001 /* AgentQueueSkillSupport.swift in Sources */,
 				A70500000000000000000003 /* AgentQueueStore.swift in Sources */,
 				A9E020000000000000000008 /* AgentSessionBridge.swift in Sources */,
 				A9F20000000000000000000B /* AgentSessionBridgeError.swift in Sources */,
