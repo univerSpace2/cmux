@@ -30,4 +30,3 @@ End the task by printing one report in the current conversation, replacing the e
 Do not look up planner refs. Do not use `cmux send` for ordinary completion. Agent Queue detects this current-pane report, completes the matching task, and forwards the evidence to the planner.
 
 If blocked, keep the same task ID and print the blocker, evidence gathered, and the decision or input required. Do not broaden scope to work around a safety or ownership boundary.
-

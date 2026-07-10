@@ -26,4 +26,3 @@ Agent Queue is the dispatch authority. Shape clear tasks, preserve every assigne
 ## Evidence review
 
 Accept a completion only when its task ID matches and its report identifies changed paths, verification evidence, skipped checks with reasons, and follow-up risk. Surface blockers or conflicting evidence to the user; do not invent missing results.
-
