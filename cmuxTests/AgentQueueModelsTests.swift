@@ -64,7 +64,7 @@ final class AgentQueueModelsTests: XCTestCase {
             completedAt: nil,
             lastError: nil
         )
-        let state = AgentQueueState(
+        var state = AgentQueueState(
             queue: queue,
             tasks: [task],
             workers: [],
@@ -75,6 +75,13 @@ final class AgentQueueModelsTests: XCTestCase {
                 completedWorkerCount: 0,
                 errorMessage: nil
             )
+        )
+        state.planningRequest = AgentQueuePlanningRequest(
+            requestID: UUID(uuidString: "11111111-2222-3333-4444-555555555555")!,
+            goal: "Build search",
+            phase: .waitingForPlanner,
+            createdAt: now,
+            errorMessage: nil
         )
 
         let data = try JSONEncoder.agentQueue.encode(state)
@@ -112,6 +119,7 @@ final class AgentQueueModelsTests: XCTestCase {
         let decoded = try JSONDecoder.agentQueue.decode(AgentQueueState.self, from: legacyData)
 
         XCTAssertNil(decoded.preparation)
+        XCTAssertNil(decoded.planningRequest)
     }
 
     func testLegacyAdditionalSkillMigratesToEveryWorkerOnly() throws {
