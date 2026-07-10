@@ -323,18 +323,69 @@ struct AgentQueueSidebarView: View {
 
     private var inputSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(String(localized: "agentQueue.input.title", defaultValue: "Task input"))
+            Text(String(localized: "agentQueue.input.goalTitle", defaultValue: "Goal input"))
                 .font(.subheadline.weight(.semibold))
             TextEditor(text: $taskInput)
                 .font(.system(.body, design: .monospaced))
                 .frame(minHeight: 100)
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25)))
                 .accessibilityIdentifier("AgentQueue.taskInput")
-            Button(String(localized: "agentQueue.input.addTasks", defaultValue: "Add Tasks")) {
-                controller.createTasks(from: taskInput)
-                taskInput = ""
+            Button(
+                String(
+                    localized: "agentQueue.input.sendToPlanner",
+                    defaultValue: "Send to Planner"
+                )
+            ) {
+                let submittedGoal = taskInput
+                Task {
+                    if await controller.requestPlan(for: submittedGoal),
+                       taskInput == submittedGoal {
+                        taskInput = ""
+                    }
+                }
             }
-            .disabled(taskInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(
+                taskInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    !controller.canRequestPlan
+            )
+
+            if let planningRequest = controller.state.planningRequest {
+                switch planningRequest.phase {
+                case .submitting, .waitingForPlanner:
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(
+                            String(
+                                localized: "agentQueue.input.planning",
+                                defaultValue: "Planner is creating tasks…"
+                            )
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+
+                case .failed:
+                    if let errorMessage = planningRequest.errorMessage {
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .textSelection(.enabled)
+                    }
+                    Button(
+                        String(localized: "agentQueue.input.retry", defaultValue: "Retry")
+                    ) {
+                        let retryGoal = planningRequest.goal
+                        Task {
+                            if await controller.retryPlanningRequest(),
+                               taskInput.trimmingCharacters(in: .whitespacesAndNewlines) == retryGoal {
+                                taskInput = ""
+                            }
+                        }
+                    }
+                    .disabled(!controller.canRequestPlan)
+                }
+            }
         }
     }
 

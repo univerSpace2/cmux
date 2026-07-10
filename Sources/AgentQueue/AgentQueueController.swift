@@ -1193,22 +1193,10 @@ final class AgentQueueController: ObservableObject {
         )
     }
 
-    private func planningResponseErrorMessage(_ error: AgentQueuePlanDetectionError) -> String {
-        let detail: String
-        switch error {
-        case .malformedJSON:
-            detail = "malformed_json"
-        case .emptyTasks:
-            detail = "empty_tasks"
-        case .invalidTask(let index):
-            detail = "invalid_task_\(index)"
-        }
+    private func planningResponseErrorMessage(_: AgentQueuePlanDetectionError) -> String {
         return String(
-            format: String(
-                localized: "agentQueue.input.responseFailed",
-                defaultValue: "Could not import the Planner response: %@"
-            ),
-            detail
+            localized: "agentQueue.input.responseFailed",
+            defaultValue: "Could not import the Planner response."
         )
     }
 
