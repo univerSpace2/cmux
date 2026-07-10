@@ -84,7 +84,7 @@ final class AgentQueuePreparationTests: XCTestCase {
     }
 
     @MainActor
-    func testDefaultPreparationCreatesOneUnfocusedRightCodexSplitAtWorkspaceCWD() async throws {
+    func testDefaultPreparationCreatesOneUnfocusedRightShellSplitThenLaunchesCodex() async throws {
         let planner = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
         let worker = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
         let driver = FakeAgentQueueWorkspaceDriver(
@@ -109,15 +109,19 @@ final class AgentQueuePreparationTests: XCTestCase {
                 direction: .right,
                 focus: false,
                 workingDirectory: "/tmp/project",
-                initialCommand: "codex"
+                initialCommand: ""
             ),
         ])
+        XCTAssertEqual(
+            driver.sentTexts.filter { $0.surfaceID == worker }.map(\.text),
+            ["codex", "$cmux-agent-queue-worker"]
+        )
         XCTAssertEqual(prepared.workerSurfaceIDs, [worker])
         XCTAssertEqual(prepared.workingDirectory, "/tmp/project")
     }
 
     @MainActor
-    func testNewWorkerDoesNotResubmitCodexWhileInitialCommandStarts() async throws {
+    func testNewWorkerLaunchesCodexAfterItsShellIsReady() async throws {
         let planner = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
         let worker = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
         let driver = FakeAgentQueueWorkspaceDriver(
@@ -138,7 +142,7 @@ final class AgentQueuePreparationTests: XCTestCase {
 
         XCTAssertEqual(
             driver.sentTexts.filter { $0.surfaceID == worker }.map(\.text),
-            ["$cmux-agent-queue-worker"]
+            ["codex", "$cmux-agent-queue-worker"]
         )
     }
 
@@ -173,7 +177,7 @@ final class AgentQueuePreparationTests: XCTestCase {
         for worker in [firstWorker, secondWorker] {
             XCTAssertEqual(
                 driver.sentTexts.filter { $0.surfaceID == worker }.map(\.text),
-                ["$cmux-agent-queue-worker $sample-domain-skill"]
+                ["codex", "$cmux-agent-queue-worker $sample-domain-skill"]
             )
         }
     }
@@ -494,7 +498,7 @@ private final class FakeAgentQueueWorkspaceDriver: AgentQueueWorkspaceDriving {
     var createdSplits: [AgentQueueWorkerSplitRequest] = []
     var closedSurfaceIDs: [UUID] = []
     var createdWorkerSurfaceIDs: [UUID]
-    var createdWorkerShellActivity: AgentQueueShellActivity = .commandRunning
+    var createdWorkerShellActivity: AgentQueueShellActivity = .promptIdle
     let workingDirectory: String
 
     init(
