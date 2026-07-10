@@ -53,11 +53,12 @@ final class AgentQueueInstructionBuilderTests: XCTestCase {
         XCTAssertTrue(
             text.hasPrefix(
                 "$cmux-agent-queue-worker $sample-domain-skill $careful\n\n" +
-                    "[AGENT_QUEUE_ROLE]\n" +
-                    "Inspect first, then implement the smallest safe change.\n" +
-                    "[/AGENT_QUEUE_ROLE]\n"
+                    "[AGENT_QUEUE_ROLE_START]\n" +
+                    "Inspect first, then implement the smallest safe change.\n"
             )
         )
+        XCTAssertFalse(text.contains("[/AGENT_QUEUE_ROLE]"))
+        XCTAssertFalse(text.contains("[AGENT_QUEUE_ROLE_END]"))
         XCTAssertTrue(text.contains("[AGENT_QUEUE_TASK]"))
         XCTAssertTrue(text.contains("task_id: T-20260709-0004"))
         XCTAssertTrue(text.contains("worker_surface_id: surface:33333333-3333-3333-3333-333333333333"))
@@ -85,7 +86,9 @@ final class AgentQueueInstructionBuilderTests: XCTestCase {
         let text = AgentQueueInstructionBuilder.recoveryPrompt(task: task, profile: profile)
 
         XCTAssertTrue(text.hasPrefix("$cmux-agent-queue-worker $sample-domain-skill\n\n"))
-        XCTAssertTrue(text.contains("[AGENT_QUEUE_ROLE]\nOwn recovery evidence.\n[/AGENT_QUEUE_ROLE]"))
+        XCTAssertTrue(text.contains("[AGENT_QUEUE_ROLE_START]\nOwn recovery evidence."))
+        XCTAssertFalse(text.contains("[/AGENT_QUEUE_ROLE]"))
+        XCTAssertFalse(text.contains("[AGENT_QUEUE_ROLE_END]"))
         XCTAssertTrue(text.contains("복구 요청 [T-20260709-0007]"))
         XCTAssertTrue(text.contains("- completed: 완료 보고 전문"))
         XCTAssertTrue(text.contains("- blocked: 막힌 이유"))
@@ -116,11 +119,12 @@ final class AgentQueueInstructionBuilderTests: XCTestCase {
         XCTAssertTrue(text.hasPrefix("$cmux-agent-queue-planner $product-director\n\n"))
         XCTAssertTrue(
             text.contains(
-                "[AGENT_QUEUE_ROLE]\n" +
-                    "Review worker evidence before accepting completion.\n" +
-                    "[/AGENT_QUEUE_ROLE]"
+                "[AGENT_QUEUE_ROLE_START]\n" +
+                    "Review worker evidence before accepting completion."
             )
         )
+        XCTAssertFalse(text.contains("[/AGENT_QUEUE_ROLE]"))
+        XCTAssertFalse(text.contains("[AGENT_QUEUE_ROLE_END]"))
         XCTAssertTrue(text.hasSuffix("자동 복구 보고 [T-20260709-0008]: done"))
     }
 }

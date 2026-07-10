@@ -32,7 +32,7 @@ final class AgentQueuePreparationTests: XCTestCase {
         XCTAssertEqual(driver.sentTexts.first?.text, "codex")
         XCTAssertTrue(driver.sentTexts.contains { item in
             item.surfaceID == planner && item.text ==
-                "$cmux-agent-queue-planner\n\n[AGENT_QUEUE_ROLE]\n\n[/AGENT_QUEUE_ROLE]"
+                "$cmux-agent-queue-planner\n\n[AGENT_QUEUE_ROLE_START]\n"
         })
     }
 
@@ -59,7 +59,7 @@ final class AgentQueuePreparationTests: XCTestCase {
         XCTAssertFalse(driver.sentTexts.contains { $0.surfaceID == planner && $0.text == "codex" })
         XCTAssertEqual(
             driver.sentTexts.filter { $0.surfaceID == planner }.map(\.text),
-            ["$cmux-agent-queue-planner\n\n[AGENT_QUEUE_ROLE]\n\n[/AGENT_QUEUE_ROLE]"]
+            ["$cmux-agent-queue-planner\n\n[AGENT_QUEUE_ROLE_START]\n"]
         )
     }
 
@@ -120,7 +120,7 @@ final class AgentQueuePreparationTests: XCTestCase {
         ])
         XCTAssertEqual(
             driver.sentTexts.filter { $0.surfaceID == worker }.map(\.text),
-            ["codex", "$cmux-agent-queue-worker\n\n[AGENT_QUEUE_ROLE]\n\n[/AGENT_QUEUE_ROLE]"]
+            ["codex", "$cmux-agent-queue-worker\n\n[AGENT_QUEUE_ROLE_START]\n"]
         )
         XCTAssertEqual(
             prepared.workerSlots,
@@ -152,7 +152,7 @@ final class AgentQueuePreparationTests: XCTestCase {
 
         XCTAssertEqual(
             driver.sentTexts.filter { $0.surfaceID == worker }.map(\.text),
-            ["codex", "$cmux-agent-queue-worker\n\n[AGENT_QUEUE_ROLE]\n\n[/AGENT_QUEUE_ROLE]"]
+            ["codex", "$cmux-agent-queue-worker\n\n[AGENT_QUEUE_ROLE_START]\n"]
         )
     }
 
@@ -205,7 +205,7 @@ final class AgentQueuePreparationTests: XCTestCase {
             [
                 "codex",
                 "$cmux-agent-queue-worker $sample-domain-skill\n\n" +
-                    "[AGENT_QUEUE_ROLE]\n\n[/AGENT_QUEUE_ROLE]",
+                    "[AGENT_QUEUE_ROLE_START]\n",
             ]
         )
         XCTAssertEqual(
@@ -213,7 +213,7 @@ final class AgentQueuePreparationTests: XCTestCase {
             [
                 "codex",
                 "$cmux-agent-queue-worker $careful\n\n" +
-                    "[AGENT_QUEUE_ROLE]\n\n[/AGENT_QUEUE_ROLE]",
+                    "[AGENT_QUEUE_ROLE_START]\n",
             ]
         )
     }
@@ -259,7 +259,7 @@ final class AgentQueuePreparationTests: XCTestCase {
             driver.sentTexts.filter { $0.surfaceID == secondWorker }.map(\.text),
             [
                 "$cmux-agent-queue-worker $api-integration\n\n" +
-                    "[AGENT_QUEUE_ROLE]\nOwn API integration.\n[/AGENT_QUEUE_ROLE]",
+                    "[AGENT_QUEUE_ROLE_START]\nOwn API integration.",
             ]
         )
         XCTAssertEqual(
@@ -669,9 +669,8 @@ final class AgentQueuePreparationTests: XCTestCase {
         XCTAssertEqual(
             AgentQueueSkillPromptBuilder.prompt(role: .worker, profile: profile),
             "$cmux-agent-queue-worker $api-integration $careful\n\n" +
-                "[AGENT_QUEUE_ROLE]\n" +
-                "Own the API change.\nReport focused evidence.\n" +
-                "[/AGENT_QUEUE_ROLE]"
+                "[AGENT_QUEUE_ROLE_START]\n" +
+                "Own the API change.\nReport focused evidence."
         )
     }
 
