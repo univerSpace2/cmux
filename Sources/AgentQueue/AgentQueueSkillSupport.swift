@@ -222,12 +222,7 @@ enum AgentQueueSkillPromptBuilder {
         let invocations = (["$\(role.rawValue)"] + profile.additionalSkills.map(\.invocation))
             .joined(separator: " ")
         let rolePrompt = AgentQueueProfileFingerprint.normalizeLineEndings(profile.rolePrompt)
-        return """
-        \(invocations)
-
-        [AGENT_QUEUE_ROLE]
-        \(rolePrompt)
-        [/AGENT_QUEUE_ROLE]
-        """
+            .trimmingCharacters(in: .newlines)
+        return "\(invocations)\n\n[AGENT_QUEUE_ROLE_START]\n\(rolePrompt)"
     }
 }
