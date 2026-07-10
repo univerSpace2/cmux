@@ -112,6 +112,165 @@ final class AgentQueueControllerTests: XCTestCase {
         XCTAssertEqual(fixture.controller.state.queue.status, .paused)
         XCTAssertNotEqual(fixture.controller.state.tasks.first?.status, .awaitingReport)
     }
+
+    func testStartDoesNothingUntilPreparationIsReady() async {
+        let fixture = AgentQueueControllerFixture(prepared: false)
+
+        fixture.controller.createTasks(from: "Inspect repo")
+        await fixture.controller.start()
+
+        XCTAssertFalse(fixture.controller.canStart)
+        XCTAssertTrue(fixture.adapter.sentTexts.isEmpty)
+        XCTAssertEqual(fixture.controller.state.tasks.first?.status, .queued)
+        XCTAssertEqual(fixture.controller.state.queue.status, .paused)
+    }
+
+    func testPreparationWaitsForSkillConfirmationThenRegistersReturnedWorkers() async throws {
+        let firstWorker = UUID(uuidString: "44444444-4444-4444-4444-444444444444")!
+        let secondWorker = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
+        let installer = FakeAgentQueueRoleSkillInstaller(
+            pending: [
+                AgentQueueRoleSkillChange(
+                    role: .planner,
+                    sourceURL: URL(fileURLWithPath: "/tmp/source/planner/SKILL.md"),
+                    destinationURL: URL(fileURLWithPath: "/tmp/destination/planner/SKILL.md"),
+                    kind: .install
+                ),
+            ]
+        )
+        let preparer = FakeAgentQueueWorkerPreparer(
+            result: AgentQueuePreparedWorkspace(
+                plannerSurfaceID: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+                workerSurfaceIDs: [firstWorker, secondWorker],
+                workingDirectory: "/tmp/project"
+            )
+        )
+        let fixture = AgentQueueControllerFixture(
+            prepared: false,
+            includeWorker: false,
+            installer: installer,
+            preparer: preparer
+        )
+        fixture.controller.setPreparationConfiguration(
+            try AgentQueuePreparationConfiguration(workerCount: 2, additionalSkill: nil)
+        )
+
+        await fixture.controller.prepareWorkers(allowSkillChanges: false)
+
+        XCTAssertEqual(fixture.controller.state.preparation?.phase, .awaitingSkillConfirmation)
+        XCTAssertEqual(fixture.controller.pendingRoleSkillChanges.map(\.role), [.planner])
+        XCTAssertEqual(preparer.prepareCallCount, 0)
+        XCTAssertTrue(fixture.controller.state.workers.isEmpty)
+
+        await fixture.controller.prepareWorkers(allowSkillChanges: true)
+
+        XCTAssertEqual(fixture.controller.state.preparation?.phase, .ready)
+        XCTAssertEqual(fixture.controller.state.workers.map(\.surfaceID), [firstWorker, secondWorker])
+        XCTAssertEqual(fixture.controller.state.workers.map(\.id), ["worker-1", "worker-2"])
+        XCTAssertEqual(preparer.prepareCallCount, 1)
+        let appliedRoles = await installer.appliedRoles()
+        XCTAssertEqual(appliedRoles, [.planner])
+    }
+
+    func testDefaultPreparationConfigurationPersists() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = AgentQueueStore(rootDirectory: directory)
+        let fixture = AgentQueueControllerFixture(prepared: false, store: store)
+
+        fixture.controller.setPreparationConfiguration(.defaultConfiguration)
+
+        var loaded: AgentQueueState?
+        for _ in 0..<50 {
+            loaded = try await store.load(workspaceID: fixture.workspaceID)
+            if loaded?.preparation?.configuration == .defaultConfiguration { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(loaded?.preparation?.configuration, .defaultConfiguration)
+        XCTAssertEqual(loaded?.preparation?.phase, .notPrepared)
+    }
+
+    func testRestoreDropsUnavailableWorkersAndRequiresPreparationAgain() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = AgentQueueStore(rootDirectory: directory)
+        let fixture = AgentQueueControllerFixture(
+            prepared: false,
+            includeWorker: false,
+            store: store
+        )
+        let availableWorker = fixture.workerSurfaceID
+        let unavailableWorker = UUID(uuidString: "66666666-6666-6666-6666-666666666666")!
+        fixture.adapter.unavailableSurfaceIDs.insert(unavailableWorker)
+        var persisted = fixture.controller.state
+        persisted.queue.status = .running
+        persisted.preparation = AgentQueuePreparationState(
+            configuration: try AgentQueuePreparationConfiguration(workerCount: 2, additionalSkill: nil),
+            phase: .ready,
+            completedWorkerCount: 2,
+            errorMessage: nil
+        )
+        persisted.workers = [availableWorker, unavailableWorker].enumerated().map { index, surfaceID in
+            AgentWorker(
+                id: "worker-\(index + 1)",
+                workspaceID: fixture.workspaceID,
+                paneID: surfaceID,
+                surfaceID: surfaceID,
+                label: "Worker \(index + 1)",
+                enabled: true,
+                status: .idle,
+                currentTaskID: nil,
+                lastSeenAt: fixture.now
+            )
+        }
+        try await store.save(persisted)
+
+        await fixture.controller.restorePersistedState()
+
+        XCTAssertEqual(fixture.controller.state.queue.status, .paused)
+        XCTAssertEqual(fixture.controller.state.workers.map(\.surfaceID), [availableWorker])
+        XCTAssertEqual(fixture.controller.state.preparation?.phase, .notPrepared)
+        XCTAssertEqual(fixture.controller.state.preparation?.configuration.workerCount, 2)
+    }
+
+    func testDispatchIncludesPreparedWorkerAndDomainSkills() async throws {
+        let skill = AgentQueueSkillSelection(
+            name: "sample-domain-skill",
+            sourcePath: "/tmp/sample-domain-skill/SKILL.md"
+        )
+        let fixture = AgentQueueControllerFixture(prepared: true, additionalSkill: skill)
+
+        fixture.controller.createTasks(from: "Inspect repo")
+        await fixture.controller.start()
+
+        XCTAssertTrue(
+            fixture.adapter.sentTexts[0].text.hasPrefix(
+                "$cmux-agent-queue-worker $sample-domain-skill\n"
+            )
+        )
+    }
+
+    func testRepreparationPassesActiveWorkerAndPreservesTaskState() async {
+        let preparer = FakeAgentQueueWorkerPreparer(
+            result: AgentQueuePreparedWorkspace(
+                plannerSurfaceID: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+                workerSurfaceIDs: [UUID(uuidString: "33333333-3333-3333-3333-333333333333")!],
+                workingDirectory: "/tmp/project"
+            )
+        )
+        let fixture = AgentQueueControllerFixture(preparer: preparer)
+        fixture.controller.createTasks(from: "Inspect repo")
+        await fixture.controller.start()
+        fixture.controller.setPreparationConfiguration(.defaultConfiguration)
+
+        await fixture.controller.prepareWorkers(allowSkillChanges: true)
+
+        XCTAssertEqual(preparer.lastActiveWorkerSurfaceIDs, [fixture.workerSurfaceID])
+        XCTAssertEqual(fixture.controller.state.tasks.first?.status, .awaitingReport)
+        XCTAssertEqual(fixture.controller.state.workers.first?.status, .awaitingReport)
+    }
 }
 
 @MainActor
@@ -128,7 +287,15 @@ private final class AgentQueueControllerFixture {
     let adapter = FakeAgentQueuePaneAdapter()
     let controller: AgentQueueController
 
-    init(pollInterval: Duration = .seconds(1)) {
+    init(
+        pollInterval: Duration = .seconds(1),
+        prepared: Bool = true,
+        additionalSkill: AgentQueueSkillSelection? = nil,
+        includeWorker: Bool = true,
+        store: AgentQueueStore? = nil,
+        installer: (any AgentQueueRoleSkillInstalling)? = nil,
+        preparer: (any AgentQueueWorkerPreparing)? = nil
+    ) {
         let queue = AgentQueue(
             id: "queue-1",
             workspaceID: workspaceID,
@@ -149,10 +316,28 @@ private final class AgentQueueControllerFixture {
             lastSeenAt: now
         )
         let fixedNow = now
+        let configuration = try! AgentQueuePreparationConfiguration(
+            workerCount: 1,
+            additionalSkill: additionalSkill
+        )
+        let preparation = AgentQueuePreparationState(
+            configuration: configuration,
+            phase: prepared ? .ready : .notPrepared,
+            completedWorkerCount: prepared ? 1 : 0,
+            errorMessage: nil
+        )
         controller = AgentQueueController(
-            initialState: AgentQueueState(queue: queue, tasks: [], workers: [worker], events: []),
+            initialState: AgentQueueState(
+                queue: queue,
+                tasks: [],
+                workers: includeWorker ? [worker] : [],
+                events: [],
+                preparation: preparation
+            ),
             paneAdapter: adapter,
-            store: nil,
+            store: store,
+            roleSkillInstaller: installer,
+            workerPreparer: preparer,
             pollInterval: pollInterval,
             now: { fixedNow }
         )
@@ -165,6 +350,7 @@ private final class FakeAgentQueuePaneAdapter: AgentQueuePaneAdapting, @unchecke
     var textBySurface: [UUID: String] = [:]
     var enterError: Error?
     var readCount = 0
+    var unavailableSurfaceIDs: Set<UUID> = []
 
     func sendText(_ text: String, to surfaceID: UUID) async throws -> AgentQueueSendResult {
         sentTexts.append((surfaceID, text))
@@ -181,10 +367,60 @@ private final class FakeAgentQueuePaneAdapter: AgentQueuePaneAdapting, @unchecke
 
     func readText(surfaceID: UUID, lines: Int) async throws -> AgentQueueSurfaceTextSnapshot {
         readCount += 1
+        if unavailableSurfaceIDs.contains(surfaceID) {
+            throw AgentQueuePaneAdapterError.surfaceNotTerminal(surfaceID)
+        }
         return AgentQueueSurfaceTextSnapshot(
             surfaceID: surfaceID,
             text: textBySurface[surfaceID] ?? "",
             capturedAt: Date(timeIntervalSince1970: 1_782_998_400)
         )
+    }
+}
+
+private actor FakeAgentQueueRoleSkillInstaller: AgentQueueRoleSkillInstalling {
+    private var pending: [AgentQueueRoleSkillChange]
+    private var applied: [AgentQueueRoleSkillChange] = []
+
+    init(pending: [AgentQueueRoleSkillChange]) {
+        self.pending = pending
+    }
+
+    func pendingChanges() async throws -> [AgentQueueRoleSkillChange] {
+        pending
+    }
+
+    func apply(_ changes: [AgentQueueRoleSkillChange]) async throws {
+        applied.append(contentsOf: changes)
+        pending.removeAll()
+    }
+
+    func appliedRoles() -> [AgentQueueRoleSkill] {
+        applied.map(\.role)
+    }
+}
+
+@MainActor
+private final class FakeAgentQueueWorkerPreparer: AgentQueueWorkerPreparing {
+    var result: AgentQueuePreparedWorkspace
+    var prepareCallCount = 0
+    var lastActiveWorkerSurfaceIDs: Set<UUID> = []
+
+    init(result: AgentQueuePreparedWorkspace) {
+        self.result = result
+    }
+
+    func prepare(
+        configuration: AgentQueuePreparationConfiguration,
+        plannerSurfaceID: UUID,
+        existingWorkerSurfaceIDs: [UUID],
+        activeWorkerSurfaceIDs: Set<UUID>,
+        progress: @escaping @MainActor (AgentQueuePreparationPhase, Int) -> Void
+    ) async throws -> AgentQueuePreparedWorkspace {
+        prepareCallCount += 1
+        lastActiveWorkerSurfaceIDs = activeWorkerSurfaceIDs
+        progress(.startingWorkers, 0)
+        progress(.waitingForIdle, result.workerSurfaceIDs.count)
+        return result
     }
 }

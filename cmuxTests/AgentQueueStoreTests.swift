@@ -16,6 +16,7 @@ final class AgentQueueStoreTests: XCTestCase {
         let loaded = try await store.load(workspaceID: state.queue.workspaceID)
 
         XCTAssertEqual(loaded, state)
+        XCTAssertEqual(loaded?.preparation?.configuration, .defaultConfiguration)
     }
 
     func testPruneEventsKeepsNewestEvents() {
@@ -51,6 +52,17 @@ private enum AgentQueueStoreFixture {
                 createdAt: now.addingTimeInterval(TimeInterval(index))
             )
         }
-        return AgentQueueState(queue: queue, tasks: [], workers: [], events: events)
+        return AgentQueueState(
+            queue: queue,
+            tasks: [],
+            workers: [],
+            events: events,
+            preparation: AgentQueuePreparationState(
+                configuration: .defaultConfiguration,
+                phase: .notPrepared,
+                completedWorkerCount: 0,
+                errorMessage: nil
+            )
+        )
     }
 }
