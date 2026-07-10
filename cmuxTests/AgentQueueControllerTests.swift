@@ -235,6 +235,40 @@ final class AgentQueueControllerTests: XCTestCase {
         XCTAssertEqual(fixture.controller.state.preparation?.configuration.workerCount, 2)
     }
 
+    func testRestoreDoesNotAdoptLegacyWorkersWithoutPreparationOwnership() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = AgentQueueStore(rootDirectory: directory)
+        let fixture = AgentQueueControllerFixture(
+            prepared: false,
+            includeWorker: false,
+            store: store
+        )
+        var persisted = fixture.controller.state
+        persisted.preparation = nil
+        persisted.workers = [
+            AgentWorker(
+                id: "worker-1",
+                workspaceID: fixture.workspaceID,
+                paneID: fixture.workerSurfaceID,
+                surfaceID: fixture.workerSurfaceID,
+                label: "Legacy Worker",
+                enabled: true,
+                status: .idle,
+                currentTaskID: nil,
+                lastSeenAt: fixture.now
+            ),
+        ]
+        try await store.save(persisted)
+
+        await fixture.controller.restorePersistedState()
+
+        XCTAssertNil(fixture.controller.state.preparation)
+        XCTAssertTrue(fixture.controller.state.workers.isEmpty)
+        XCTAssertFalse(fixture.controller.canStart)
+    }
+
     func testDispatchIncludesPreparedWorkerAndDomainSkills() async throws {
         let skill = AgentQueueSkillSelection(
             name: "sample-domain-skill",
