@@ -65,6 +65,21 @@ actor TextBoxMentionIndexStore {
         }
     }
 
+    func skillSuggestions(
+        rootDirectory: String?,
+        query: String = ""
+    ) async -> [TextBoxMentionSuggestion] {
+        await suggestions(
+            for: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 0),
+                query: query,
+                trigger: "$"
+            ),
+            rootDirectory: rootDirectory
+        )
+    }
+
     func warmIndexes(rootDirectory: String?) async {
         let normalizedRootDirectory = Self.normalizedDirectory(rootDirectory)
         _ = skillIndex(rootDirectory: normalizedRootDirectory)

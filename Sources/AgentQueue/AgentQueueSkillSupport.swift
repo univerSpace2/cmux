@@ -108,3 +108,58 @@ actor AgentQueueRoleSkillInstaller {
     }
 }
 
+struct AgentQueueSkillCatalog: Sendable {
+    private let indexStore: TextBoxMentionIndexStore
+
+    init(indexStore: TextBoxMentionIndexStore = .shared) {
+        self.indexStore = indexStore
+    }
+
+    func options(rootDirectory: String?, query: String = "") async -> [AgentQueueSkillSelection] {
+        let excludedNames = Set(AgentQueueRoleSkill.allCases.map(\.rawValue))
+        let suggestions = await indexStore.skillSuggestions(
+            rootDirectory: rootDirectory,
+            query: query
+        )
+
+        var seenSourcePaths: Set<String> = []
+        return suggestions.compactMap { suggestion in
+            let name: String
+            if suggestion.title.hasPrefix("$") {
+                name = String(suggestion.title.dropFirst())
+            } else {
+                name = suggestion.title
+            }
+            guard !excludedNames.contains(name),
+                  seenSourcePaths.insert(suggestion.subtitle).inserted else {
+                return nil
+            }
+            return AgentQueueSkillSelection(
+                name: name,
+                sourcePath: suggestion.subtitle
+            )
+        }
+    }
+}
+
+enum AgentQueueSkillPromptBuilder {
+    static var plannerPrompt: String {
+        "$\(AgentQueueRoleSkill.planner.rawValue)"
+    }
+
+    static func workerPrompt(additionalSkill: AgentQueueSkillSelection?) -> String {
+        [
+            "$\(AgentQueueRoleSkill.worker.rawValue)",
+            additionalSkill?.invocation,
+        ]
+        .compactMap { $0 }
+        .joined(separator: " ")
+    }
+
+    static func workerPrompts(configuration: AgentQueuePreparationConfiguration) -> [String] {
+        Array(
+            repeating: workerPrompt(additionalSkill: configuration.additionalSkill),
+            count: configuration.workerCount
+        )
+    }
+}
