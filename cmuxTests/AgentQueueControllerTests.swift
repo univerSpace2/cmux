@@ -22,7 +22,17 @@ final class AgentQueueControllerTests: XCTestCase {
     }
 
     func testWrongPaneReportIsForwardedToPlanner() async throws {
-        let fixture = AgentQueueControllerFixture()
+        var plannerProfile = AgentQueueAgentProfile.planner
+        plannerProfile = plannerProfile.addingSkill(
+            AgentQueueSkillSelection(
+                name: "product-director",
+                sourcePath: "/tmp/product-director/SKILL.md"
+            )
+        )
+        plannerProfile.rolePrompt = "Review worker evidence."
+        let configuration = try AgentQueuePreparationConfiguration.defaultConfiguration
+            .replacingProfile(plannerProfile)
+        let fixture = AgentQueueControllerFixture(configuration: configuration)
         let controller = fixture.controller
 
         controller.createTasks(from: "Inspect repo")
@@ -32,7 +42,10 @@ final class AgentQueueControllerTests: XCTestCase {
         await controller.pollReportsOnce(now: fixture.now.addingTimeInterval(60))
 
         XCTAssertTrue(fixture.adapter.sentTexts.contains { item in
-            item.surfaceID == fixture.plannerSurfaceID && item.text.contains("자동 복구 보고 [T-20260709-0001]")
+            item.surfaceID == fixture.plannerSurfaceID &&
+                item.text.hasPrefix("$cmux-agent-queue-planner $product-director\n\n") &&
+                item.text.contains("[AGENT_QUEUE_ROLE]\nReview worker evidence.\n[/AGENT_QUEUE_ROLE]") &&
+                item.text.contains("자동 복구 보고 [T-20260709-0001]")
         })
         XCTAssertEqual(controller.state.tasks.first?.status, .completed)
     }
@@ -269,19 +282,34 @@ final class AgentQueueControllerTests: XCTestCase {
         XCTAssertFalse(fixture.controller.canStart)
     }
 
-    func testDispatchIncludesPreparedWorkerAndDomainSkills() async throws {
-        let skill = AgentQueueSkillSelection(
-            name: "sample-domain-skill",
-            sourcePath: "/tmp/sample-domain-skill/SKILL.md"
+    func testDispatchIncludesPreparedWorkerSkillsAndRole() async throws {
+        let profile = AgentQueueAgentProfile(
+            id: "worker-1",
+            additionalSkills: [
+                AgentQueueSkillSelection(
+                    name: "sample-domain-skill",
+                    sourcePath: "/tmp/sample-domain-skill/SKILL.md"
+                ),
+                AgentQueueSkillSelection(
+                    name: "careful",
+                    sourcePath: "/tmp/careful/SKILL.md"
+                ),
+            ],
+            rolePrompt: "Own the assigned implementation."
         )
-        let fixture = AgentQueueControllerFixture(prepared: true, additionalSkill: skill)
+        let configuration = try AgentQueuePreparationConfiguration.defaultConfiguration
+            .replacingProfile(profile)
+        let fixture = AgentQueueControllerFixture(prepared: true, configuration: configuration)
 
         fixture.controller.createTasks(from: "Inspect repo")
         await fixture.controller.start()
 
         XCTAssertTrue(
             fixture.adapter.sentTexts[0].text.hasPrefix(
-                "$cmux-agent-queue-worker $sample-domain-skill\n"
+                "$cmux-agent-queue-worker $sample-domain-skill $careful\n\n" +
+                    "[AGENT_QUEUE_ROLE]\n" +
+                    "Own the assigned implementation.\n" +
+                    "[/AGENT_QUEUE_ROLE]\n"
             )
         )
     }
@@ -325,6 +353,7 @@ private final class AgentQueueControllerFixture {
         pollInterval: Duration = .seconds(1),
         prepared: Bool = true,
         additionalSkill: AgentQueueSkillSelection? = nil,
+        configuration: AgentQueuePreparationConfiguration? = nil,
         includeWorker: Bool = true,
         store: AgentQueueStore? = nil,
         installer: (any AgentQueueRoleSkillInstalling)? = nil,
@@ -350,10 +379,10 @@ private final class AgentQueueControllerFixture {
             lastSeenAt: now
         )
         let fixedNow = now
-        let configuration = try! AgentQueuePreparationConfiguration(
+        let configuration = configuration ?? (try! AgentQueuePreparationConfiguration(
             workerCount: 1,
             additionalSkill: additionalSkill
-        )
+        ))
         let preparation = AgentQueuePreparationState(
             configuration: configuration,
             phase: prepared ? .ready : .notPrepared,

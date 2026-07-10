@@ -401,6 +401,61 @@ final class AgentQueuePreparationTests: XCTestCase {
         XCTAssertEqual(Set(prompts), ["$cmux-agent-queue-worker $sample-domain-skill"])
     }
 
+    func testWorkerPromptContainsOrderedSkillsAndRoleBlock() {
+        let profile = AgentQueueAgentProfile(
+            id: "worker-1",
+            additionalSkills: [
+                AgentQueueSkillSelection(
+                    name: "api-integration",
+                    sourcePath: "/skills/api/SKILL.md"
+                ),
+                AgentQueueSkillSelection(
+                    name: "careful",
+                    sourcePath: "/skills/careful/SKILL.md"
+                ),
+            ],
+            rolePrompt: "Own the API change.\nReport focused evidence."
+        )
+
+        XCTAssertEqual(
+            AgentQueueSkillPromptBuilder.prompt(role: .worker, profile: profile),
+            "$cmux-agent-queue-worker $api-integration $careful\n\n" +
+                "[AGENT_QUEUE_ROLE]\n" +
+                "Own the API change.\nReport focused evidence.\n" +
+                "[/AGENT_QUEUE_ROLE]"
+        )
+    }
+
+    func testProfileFingerprintNormalizesCRLFButTracksOrderAndRoleChanges() {
+        let first = AgentQueueAgentProfile(
+            id: "worker-1",
+            additionalSkills: [
+                AgentQueueSkillSelection(
+                    name: "api-integration",
+                    sourcePath: "/skills/api/SKILL.md"
+                ),
+                AgentQueueSkillSelection(
+                    name: "careful",
+                    sourcePath: "/skills/careful/SKILL.md"
+                ),
+            ],
+            rolePrompt: "line 1\r\nline 2"
+        )
+        var same = first
+        same.rolePrompt = "line 1\nline 2"
+        var reordered = first
+        reordered.additionalSkills.reverse()
+
+        XCTAssertEqual(
+            AgentQueueProfileFingerprint.make(first),
+            AgentQueueProfileFingerprint.make(same)
+        )
+        XCTAssertNotEqual(
+            AgentQueueProfileFingerprint.make(first),
+            AgentQueueProfileFingerprint.make(reordered)
+        )
+    }
+
     func testWorkerReconcilerCreatesOnlyDeficitAndClosesStableSurplus() throws {
         let first = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let second = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
@@ -485,6 +540,7 @@ final class AgentQueuePreparationTests: XCTestCase {
             try String(contentsOf: roleSkillURL(.worker, root: destinationRoot), encoding: .utf8),
             "worker-v1"
         )
+        let firstWorkerFingerprint = try await installer.fingerprint(for: .worker)
 
         try writeRoleSkill(.worker, contents: "worker-v2", root: sourceRoot)
         let updates = try await installer.pendingChanges()
@@ -500,6 +556,8 @@ final class AgentQueuePreparationTests: XCTestCase {
             try String(contentsOf: roleSkillURL(.planner, root: destinationRoot), encoding: .utf8),
             "planner-v1"
         )
+        let secondWorkerFingerprint = try await installer.fingerprint(for: .worker)
+        XCTAssertNotEqual(firstWorkerFingerprint, secondWorkerFingerprint)
     }
 
     private func frontmatterName(in contents: String) -> String? {
