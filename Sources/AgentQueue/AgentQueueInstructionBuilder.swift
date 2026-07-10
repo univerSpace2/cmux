@@ -38,4 +38,27 @@ enum AgentQueueInstructionBuilder {
     ) -> String {
         "\(AgentQueueSkillPromptBuilder.prompt(role: .planner, profile: profile))\n\(instruction)"
     }
+
+    static func plannerRequest(
+        goal: String,
+        requestID: UUID,
+        profile: AgentQueueAgentProfile
+    ) -> String {
+        let id = requestID.uuidString.lowercased()
+        let instruction = """
+        사용자 목표를 실행 가능한 작업으로 분해하세요.
+
+        [AGENT_QUEUE_PLAN_REQUEST]
+        request_id: \(id)
+        goal:
+        \(goal)
+        [/AGENT_QUEUE_PLAN_REQUEST]
+
+        설명이나 Markdown 코드 펜스 없이 다음 형식만 출력하세요.
+        [AGENT_QUEUE_TASKS]
+        {"request_id":"\(id)","tasks":[{"title":"작업 제목","body":"구체적인 작업 지시"}]}
+        [/AGENT_QUEUE_TASKS]
+        """
+        return plannerInstruction(instruction, profile: profile)
+    }
 }
