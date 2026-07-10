@@ -373,22 +373,36 @@ final class AgentQueueController: ObservableObject {
                 await dispatch(taskID: taskID, workerID: workerID)
 
             case let .forwardReport(taskID, _, excerpt):
-                let text = """
+                let instruction = """
                 자동 복구 보고 [\(taskID)]:
                 Worker pane에서 완료 보고가 감지되어 planner pane으로 전달합니다.
 
                 \(excerpt)
 
                 """
+                guard let plannerProfile = state.preparation?.configuration.profile(
+                    id: AgentQueueAgentID.planner
+                ) else {
+                    await apply(.queuePaused)
+                    continue
+                }
+                let text = AgentQueueInstructionBuilder.plannerInstruction(
+                    instruction,
+                    profile: plannerProfile
+                )
                 _ = try? await paneAdapter.sendText(text, to: state.queue.plannerSurfaceID)
                 _ = try? await paneAdapter.sendEnter(to: state.queue.plannerSurfaceID)
 
             case let .sendRecovery(taskID, workerID):
                 guard let task = state.tasks.first(where: { $0.id == taskID }),
                       let worker = state.workers.first(where: { $0.id == workerID }) else { continue }
+                guard let profile = state.preparation?.configuration.profile(id: worker.id) else {
+                    await failForMissingProfile(taskID: taskID, workerID: workerID)
+                    continue
+                }
                 let text = AgentQueueInstructionBuilder.recoveryPrompt(
                     task: task,
-                    additionalSkill: state.preparation?.configuration.additionalSkill
+                    profile: profile
                 )
                 _ = try? await paneAdapter.sendText(text, to: worker.surfaceID)
                 _ = try? await paneAdapter.sendEnter(to: worker.surfaceID)
@@ -405,11 +419,15 @@ final class AgentQueueController: ObservableObject {
               let worker = state.workers.first(where: { $0.id == workerID }) else {
             return
         }
+        guard let profile = state.preparation?.configuration.profile(id: worker.id) else {
+            await failForMissingProfile(taskID: taskID, workerID: workerID)
+            return
+        }
         let text = AgentQueueInstructionBuilder.workerInstruction(
             context: AgentQueueInstructionContext(
                 task: task,
                 workerSurfaceID: worker.surfaceID,
-                additionalSkill: state.preparation?.configuration.additionalSkill
+                profile: profile
             )
         )
         var didSendText = false
@@ -434,6 +452,17 @@ final class AgentQueueController: ObservableObject {
                 )
             )
         }
+    }
+
+    private func failForMissingProfile(taskID: String, workerID: String) async {
+        await apply(
+            .dispatchSubmissionFailed(
+                taskID: taskID,
+                workerID: workerID,
+                stage: .text,
+                message: "Missing Agent Queue profile for \(workerID)."
+            )
+        )
     }
 
     private func persistSoon() {

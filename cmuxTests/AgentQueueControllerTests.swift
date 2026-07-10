@@ -458,6 +458,15 @@ private actor FakeAgentQueueRoleSkillInstaller: AgentQueueRoleSkillInstalling {
         pending.removeAll()
     }
 
+    func fingerprint(for role: AgentQueueRoleSkill) async throws -> String {
+        switch role {
+        case .planner:
+            return "planner-v1"
+        case .worker:
+            return "worker-v1"
+        }
+    }
+
     func appliedRoles() -> [AgentQueueRoleSkill] {
         applied.map(\.role)
     }

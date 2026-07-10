@@ -3,7 +3,7 @@ import Foundation
 struct AgentQueueInstructionContext: Equatable, Sendable {
     var task: AgentTask
     var workerSurfaceID: UUID
-    var additionalSkill: AgentQueueSkillSelection?
+    var profile: AgentQueueAgentProfile
 }
 
 enum AgentQueueInstructionBuilder {
@@ -18,10 +18,10 @@ enum AgentQueueInstructionBuilder {
             context.workerSurfaceID.uuidString.lowercased(),
             context.task.id
         )
-        return "\(AgentQueueSkillPromptBuilder.workerPrompt(additionalSkill: context.additionalSkill))\n\(instruction)"
+        return "\(AgentQueueSkillPromptBuilder.prompt(role: .worker, profile: context.profile))\n\(instruction)"
     }
 
-    static func recoveryPrompt(task: AgentTask, additionalSkill: AgentQueueSkillSelection?) -> String {
+    static func recoveryPrompt(task: AgentTask, profile: AgentQueueAgentProfile) -> String {
         let instruction = String(
             format: String(
                 localized: "agentQueue.instruction.recoveryCurrentPane",
@@ -29,6 +29,13 @@ enum AgentQueueInstructionBuilder {
             ),
             task.id
         )
-        return "\(AgentQueueSkillPromptBuilder.workerPrompt(additionalSkill: additionalSkill))\n\(instruction)"
+        return "\(AgentQueueSkillPromptBuilder.prompt(role: .worker, profile: profile))\n\(instruction)"
+    }
+
+    static func plannerInstruction(
+        _ instruction: String,
+        profile: AgentQueueAgentProfile
+    ) -> String {
+        "\(AgentQueueSkillPromptBuilder.prompt(role: .planner, profile: profile))\n\(instruction)"
     }
 }

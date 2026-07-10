@@ -1,8 +1,55 @@
+import CryptoKit
 import Foundation
 
 enum AgentQueueSkillPath {
     static func normalize(_ path: String) -> String {
         (path as NSString).standardizingPath
+    }
+
+    static func exists(_ path: String) -> Bool {
+        FileManager.default.fileExists(atPath: normalize(path))
+    }
+}
+
+enum AgentQueueProfileFingerprint {
+    private struct CanonicalProfile: Encodable {
+        struct Skill: Encodable {
+            var name: String
+            var sourcePath: String
+        }
+
+        var id: String
+        var additionalSkills: [Skill]
+        var rolePrompt: String
+    }
+
+    static func make(_ profile: AgentQueueAgentProfile) -> String {
+        let canonical = CanonicalProfile(
+            id: profile.id,
+            additionalSkills: profile.additionalSkills.map {
+                CanonicalProfile.Skill(
+                    name: $0.name,
+                    sourcePath: AgentQueueSkillPath.normalize($0.sourcePath)
+                )
+            },
+            rolePrompt: normalizeLineEndings(profile.rolePrompt)
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try! encoder.encode(canonical)
+        return AgentQueueSHA256.hexDigest(data)
+    }
+
+    fileprivate static func normalizeLineEndings(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n")
+    }
+}
+
+private enum AgentQueueSHA256 {
+    static func hexDigest(_ data: Data) -> String {
+        SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 }
 
@@ -32,6 +79,7 @@ struct AgentQueueRoleSkillChange: Equatable, Sendable {
 protocol AgentQueueRoleSkillInstalling: Sendable {
     func pendingChanges() async throws -> [AgentQueueRoleSkillChange]
     func apply(_ changes: [AgentQueueRoleSkillChange]) async throws
+    func fingerprint(for role: AgentQueueRoleSkill) async throws -> String
 }
 
 actor AgentQueueRoleSkillInstaller: AgentQueueRoleSkillInstalling {
@@ -102,6 +150,15 @@ actor AgentQueueRoleSkillInstaller: AgentQueueRoleSkillInstalling {
         }
     }
 
+    func fingerprint(for role: AgentQueueRoleSkill) async throws -> String {
+        guard let sourceRoot else {
+            throw missingFileError(path: "Bundle.main.resourceURL")
+        }
+        return AgentQueueSHA256.hexDigest(
+            try Data(contentsOf: role.skillURL(root: sourceRoot))
+        )
+    }
+
     private func missingFileError(path: String) -> NSError {
         NSError(
             domain: NSCocoaErrorDomain,
@@ -142,7 +199,7 @@ struct AgentQueueSkillCatalog: Sendable {
                 name = suggestion.title
             }
             guard !excludedNames.contains(name),
-                  seenSourcePaths.insert(suggestion.subtitle).inserted else {
+                  seenSourcePaths.insert(AgentQueueSkillPath.normalize(suggestion.subtitle)).inserted else {
                 return nil
             }
             return AgentQueueSkillSelection(
@@ -165,6 +222,22 @@ enum AgentQueueSkillPromptBuilder {
         ]
         .compactMap { $0 }
         .joined(separator: " ")
+    }
+
+    static func prompt(
+        role: AgentQueueRoleSkill,
+        profile: AgentQueueAgentProfile
+    ) -> String {
+        let invocations = (["$\(role.rawValue)"] + profile.additionalSkills.map(\.invocation))
+            .joined(separator: " ")
+        let rolePrompt = AgentQueueProfileFingerprint.normalizeLineEndings(profile.rolePrompt)
+        return """
+        \(invocations)
+
+        [AGENT_QUEUE_ROLE]
+        \(rolePrompt)
+        [/AGENT_QUEUE_ROLE]
+        """
     }
 
     static func workerPrompts(configuration: AgentQueuePreparationConfiguration) -> [String] {
