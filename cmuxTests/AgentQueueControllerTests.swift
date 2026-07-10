@@ -361,6 +361,153 @@ final class AgentQueueControllerTests: XCTestCase {
         XCTAssertEqual(fixture.controller.state.tasks.first?.status, .awaitingReport)
         XCTAssertEqual(fixture.controller.state.workers.first?.status, .awaitingReport)
     }
+
+    func testEditingWorkerTwoDirtiesOnlyWorkerTwoAndDisablesStart() {
+        let fixture = AgentQueueControllerFixture(prepared: true, workerCount: 2)
+        let skill = AgentQueueSkillSelection(
+            name: "careful",
+            sourcePath: "/tmp/skills/careful/SKILL.md"
+        )
+
+        fixture.controller.addSkill(skill, to: "worker-2")
+
+        XCTAssertEqual(fixture.controller.state.preparation?.dirtyAgentIDs(), ["worker-2"])
+        XCTAssertEqual(
+            fixture.controller.state.preparation?.record(agentID: "worker-1")?.phase,
+            .ready
+        )
+        XCTAssertFalse(fixture.controller.canStart)
+    }
+
+    func testDuplicateAddIsNoOpAndRemoveIsScoped() {
+        let skill = AgentQueueSkillSelection(
+            name: "careful",
+            sourcePath: "/tmp/skills/careful/SKILL.md"
+        )
+        let fixture = AgentQueueControllerFixture(prepared: true, workerCount: 2)
+
+        fixture.controller.addSkill(skill, to: "worker-1")
+        let afterFirstAdd = fixture.controller.state.preparation
+        fixture.controller.addSkill(skill, to: "worker-1")
+        XCTAssertEqual(fixture.controller.state.preparation, afterFirstAdd)
+
+        fixture.controller.addSkill(skill, to: "worker-2")
+        fixture.controller.removeSkill(sourcePath: skill.sourcePath, from: "worker-1")
+
+        XCTAssertTrue(
+            fixture.controller.state.preparation?.configuration
+                .profile(id: "worker-1")?.additionalSkills.isEmpty == true
+        )
+        XCTAssertEqual(
+            fixture.controller.state.preparation?.configuration
+                .profile(id: "worker-2")?.additionalSkills,
+            [skill]
+        )
+    }
+
+    func testRolePromptUpdatePreservesMultilineTextAndScopesDirtyState() {
+        let fixture = AgentQueueControllerFixture(prepared: true, workerCount: 2)
+        let role = "Own API changes.\nReport verification evidence."
+
+        fixture.controller.setRolePrompt(role, for: "worker-2")
+
+        XCTAssertEqual(
+            fixture.controller.state.preparation?.configuration.profile(id: "worker-2")?.rolePrompt,
+            role
+        )
+        XCTAssertEqual(fixture.controller.state.preparation?.dirtyAgentIDs(), ["worker-2"])
+    }
+
+    func testHiddenWorkerProfileChangeDoesNotGateStart() {
+        let fixture = AgentQueueControllerFixture(prepared: true, workerCount: 1)
+        fixture.controller.addSkill(
+            AgentQueueSkillSelection(
+                name: "careful",
+                sourcePath: "/tmp/skills/careful/SKILL.md"
+            ),
+            to: "worker-4"
+        )
+        fixture.controller.createTasks(from: "Inspect repo")
+
+        XCTAssertEqual(fixture.controller.state.preparation?.dirtyAgentIDs(), [])
+        XCTAssertTrue(fixture.controller.canStart)
+    }
+
+    func testDecreaseThenIncreaseRestoresHiddenWorkerProfile() {
+        var workerTwo = AgentQueueAgentProfile.worker(index: 1)
+        workerTwo.rolePrompt = "Own the API boundary."
+        workerTwo = workerTwo.addingSkill(
+            AgentQueueSkillSelection(
+                name: "api-integration",
+                sourcePath: "/tmp/skills/api-integration/SKILL.md"
+            )
+        )
+        let configuration = try! AgentQueuePreparationConfiguration(
+            workerCount: 2,
+            plannerProfile: .planner,
+            workerProfiles: AgentQueueAgentProfile.defaultWorkers
+        ).replacingProfile(workerTwo)
+        let fixture = AgentQueueControllerFixture(prepared: true, configuration: configuration)
+
+        fixture.controller.setWorkerCount(1)
+        fixture.controller.setWorkerCount(2)
+
+        XCTAssertEqual(
+            fixture.controller.state.preparation?.configuration.profile(id: "worker-2"),
+            workerTwo
+        )
+        XCTAssertEqual(fixture.controller.state.preparation?.dirtyAgentIDs(), ["worker-2"])
+    }
+
+    func testMissingSkillSourceIsRejectedWithoutMutation() {
+        let fixture = AgentQueueControllerFixture(
+            prepared: true,
+            skillSourceExists: { _ in false }
+        )
+
+        fixture.controller.addSkill(
+            AgentQueueSkillSelection(
+                name: "missing",
+                sourcePath: "/missing/SKILL.md"
+            ),
+            to: "worker-1"
+        )
+
+        XCTAssertTrue(
+            fixture.controller.state.preparation?.configuration
+                .profile(id: "worker-1")?.additionalSkills.isEmpty == true
+        )
+        XCTAssertEqual(fixture.controller.state.preparation?.dirtyAgentIDs(), [])
+    }
+
+    func testActiveWorkRejectsProfileEditAndWorkerCountDecrease() async {
+        let fixture = AgentQueueControllerFixture(prepared: true, workerCount: 2)
+        fixture.controller.createTasks(from: "Inspect repo")
+        await fixture.controller.start()
+        let before = fixture.controller.state.preparation?.configuration
+
+        fixture.controller.setRolePrompt("Do not apply", for: "worker-1")
+        fixture.controller.setWorkerCount(1)
+
+        XCTAssertTrue(fixture.controller.hasActiveWork)
+        XCTAssertFalse(fixture.controller.canEditProfiles)
+        XCTAssertEqual(fixture.controller.state.preparation?.configuration, before)
+        XCTAssertEqual(fixture.controller.state.tasks.first?.status, .awaitingReport)
+    }
+
+    func testIncreasingWorkerCountDuringActiveWorkDirtiesNewSlotOnly() async {
+        let fixture = AgentQueueControllerFixture(prepared: true, workerCount: 1)
+        fixture.controller.createTasks(from: "Inspect repo")
+        await fixture.controller.start()
+
+        fixture.controller.setWorkerCount(2)
+
+        XCTAssertEqual(fixture.controller.state.preparation?.configuration.workerCount, 2)
+        XCTAssertEqual(fixture.controller.state.preparation?.dirtyAgentIDs(), ["worker-2"])
+        XCTAssertEqual(fixture.controller.state.tasks.first?.status, .awaitingReport)
+        XCTAssertEqual(fixture.controller.state.workers.first?.status, .awaitingReport)
+        XCTAssertEqual(fixture.controller.state.queue.status, .running)
+    }
 }
 
 @MainActor
@@ -374,18 +521,25 @@ private final class AgentQueueControllerFixture {
     let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
     let plannerSurfaceID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
     let workerSurfaceID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+    let additionalWorkerSurfaceIDs = [
+        UUID(uuidString: "44444444-4444-4444-4444-444444444444")!,
+        UUID(uuidString: "55555555-5555-5555-5555-555555555555")!,
+        UUID(uuidString: "66666666-6666-6666-6666-666666666666")!,
+    ]
     let adapter = FakeAgentQueuePaneAdapter()
     let controller: AgentQueueController
 
     init(
         pollInterval: Duration = .seconds(1),
         prepared: Bool = true,
+        workerCount: Int = 1,
         additionalSkill: AgentQueueSkillSelection? = nil,
         configuration: AgentQueuePreparationConfiguration? = nil,
         includeWorker: Bool = true,
         store: AgentQueueStore? = nil,
         installer: (any AgentQueueRoleSkillInstalling)? = nil,
-        preparer: (any AgentQueueWorkerPreparing)? = nil
+        preparer: (any AgentQueueWorkerPreparing)? = nil,
+        skillSourceExists: @escaping @Sendable (String) -> Bool = { _ in true }
     ) {
         let queue = AgentQueue(
             id: "queue-1",
@@ -395,33 +549,62 @@ private final class AgentQueueControllerFixture {
             createdAt: now,
             updatedAt: now
         )
-        let worker = AgentWorker(
-            id: "worker-1",
-            workspaceID: workspaceID,
-            paneID: UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!,
-            surfaceID: workerSurfaceID,
-            label: "Worker 1",
-            enabled: true,
-            status: .idle,
-            currentTaskID: nil,
-            lastSeenAt: now
-        )
         let fixedNow = now
         let configuration = configuration ?? (try! AgentQueuePreparationConfiguration(
-            workerCount: 1,
+            workerCount: workerCount,
             additionalSkill: additionalSkill
         ))
+        let workerSurfaceIDs = [workerSurfaceID] + additionalWorkerSurfaceIDs
+        let workers = includeWorker
+            ? configuration.workerProfiles.prefix(configuration.workerCount).enumerated().map { index, profile in
+                AgentWorker(
+                    id: profile.id,
+                    workspaceID: queue.workspaceID,
+                    paneID: workerSurfaceIDs[index],
+                    surfaceID: workerSurfaceIDs[index],
+                    label: "Worker \(index + 1)",
+                    enabled: true,
+                    status: .idle,
+                    currentTaskID: nil,
+                    lastSeenAt: fixedNow
+                )
+            }
+            : []
+        let desiredRoleSkillFingerprints = [
+            AgentQueueRoleSkill.planner.rawValue: "planner-v1",
+            AgentQueueRoleSkill.worker.rawValue: "worker-v1",
+        ]
+        let records: [AgentQueueAgentPreparationRecord] = prepared
+            ? configuration.activeAgentIDs.compactMap { agentID in
+                let surfaceID = agentID == AgentQueueAgentID.planner
+                    ? queue.plannerSurfaceID
+                    : workers.first(where: { $0.id == agentID })?.surfaceID
+                guard let surfaceID, let profile = configuration.profile(id: agentID) else { return nil }
+                return AgentQueueAgentPreparationRecord(
+                    agentID: agentID,
+                    surfaceID: surfaceID,
+                    appliedProfileFingerprint: AgentQueueProfileFingerprint.make(profile),
+                    appliedRoleSkillFingerprint: agentID == AgentQueueAgentID.planner
+                        ? "planner-v1"
+                        : "worker-v1",
+                    phase: .ready,
+                    errorMessage: nil
+                )
+            }
+            : []
         let preparation = AgentQueuePreparationState(
             configuration: configuration,
             phase: prepared ? .ready : .notPrepared,
-            completedWorkerCount: prepared ? 1 : 0,
-            errorMessage: nil
+            completedWorkerCount: prepared ? workers.count : 0,
+            errorMessage: nil,
+            records: records,
+            desiredRoleSkillFingerprints: desiredRoleSkillFingerprints
         )
         controller = AgentQueueController(
             initialState: AgentQueueState(
                 queue: queue,
                 tasks: [],
-                workers: includeWorker ? [worker] : [],
+                workers: workers,
                 events: [],
                 preparation: preparation
             ),
@@ -430,6 +613,7 @@ private final class AgentQueueControllerFixture {
             roleSkillInstaller: installer,
             workerPreparer: preparer,
             pollInterval: pollInterval,
+            skillSourceExists: skillSourceExists,
             now: { fixedNow }
         )
     }

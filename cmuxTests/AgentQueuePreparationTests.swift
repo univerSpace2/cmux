@@ -581,6 +581,58 @@ final class AgentQueuePreparationTests: XCTestCase {
         )
     }
 
+    func testPreparationStateDirtyAgentIDsUseOnlyActiveMatchingRecords() {
+        let configuration = AgentQueuePreparationConfiguration.defaultConfiguration
+        let plannerSurface = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let workerSurface = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let desired = [
+            AgentQueueRoleSkill.planner.rawValue: "planner-v1",
+            AgentQueueRoleSkill.worker.rawValue: "worker-v1",
+        ]
+        var state = AgentQueuePreparationState(
+            configuration: configuration,
+            phase: .ready,
+            completedWorkerCount: 1,
+            errorMessage: nil,
+            records: [
+                AgentQueueAgentPreparationRecord(
+                    agentID: "planner",
+                    surfaceID: plannerSurface,
+                    appliedProfileFingerprint: AgentQueueProfileFingerprint.make(configuration.plannerProfile),
+                    appliedRoleSkillFingerprint: "planner-v1",
+                    phase: .ready,
+                    errorMessage: nil
+                ),
+                AgentQueueAgentPreparationRecord(
+                    agentID: "worker-1",
+                    surfaceID: workerSurface,
+                    appliedProfileFingerprint: AgentQueueProfileFingerprint.make(configuration.workerProfiles[0]),
+                    appliedRoleSkillFingerprint: "worker-v1",
+                    phase: .ready,
+                    errorMessage: nil
+                ),
+                AgentQueueAgentPreparationRecord(
+                    agentID: "worker-4",
+                    surfaceID: nil,
+                    appliedProfileFingerprint: nil,
+                    appliedRoleSkillFingerprint: nil,
+                    phase: .failed,
+                    errorMessage: "hidden failure"
+                ),
+            ],
+            desiredRoleSkillFingerprints: desired
+        )
+
+        XCTAssertTrue(state.isReady(agentID: "planner"))
+        XCTAssertEqual(state.dirtyAgentIDs(), [])
+
+        var workerRecord = state.record(agentID: "worker-1")!
+        workerRecord.phase = .notPrepared
+        state = state.replacingRecord(workerRecord)
+
+        XCTAssertEqual(state.dirtyAgentIDs(), ["worker-1"])
+    }
+
     func testWorkerReconcilerCreatesOnlyDeficitAndClosesStableSurplus() throws {
         let first = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let second = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
