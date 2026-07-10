@@ -244,6 +244,60 @@ final class AgentQueuePreparationTests: XCTestCase {
         }
     }
 
+    func testPreparationSnapshotDefaultsToOneWorkerWithNoAdditionalSkillAndDisabledStart() {
+        let snapshot = AgentQueuePreparationSnapshot(preparation: nil, canStart: false)
+
+        XCTAssertEqual(snapshot.workerCount, 1)
+        XCTAssertEqual(
+            snapshot.additionalSkillText,
+            String(localized: "agentQueue.preparation.skill.none", defaultValue: "None")
+        )
+        XCTAssertTrue(snapshot.isStartDisabled)
+        XCTAssertNil(snapshot.progressText)
+    }
+
+    func testPreparationSnapshotShowsWorkerProgressAndRetryForFailure() throws {
+        let progress = AgentQueuePreparationSnapshot(
+            preparation: AgentQueuePreparationState(
+                configuration: try AgentQueuePreparationConfiguration(
+                    workerCount: 3,
+                    additionalSkill: nil
+                ),
+                phase: .waitingForIdle,
+                completedWorkerCount: 2,
+                errorMessage: nil
+            ),
+            canStart: false
+        )
+        let failed = AgentQueuePreparationSnapshot(
+            preparation: AgentQueuePreparationState(
+                configuration: .defaultConfiguration,
+                phase: .failed,
+                completedWorkerCount: 0,
+                errorMessage: "planner unavailable"
+            ),
+            canStart: false
+        )
+
+        XCTAssertTrue(progress.progressText?.contains("2/3") == true)
+        XCTAssertFalse(progress.showsRetry)
+        XCTAssertTrue(failed.showsRetry)
+        XCTAssertEqual(failed.errorMessage, "planner unavailable")
+    }
+
+    func testSkillRowSnapshotUsesStableSourcePathIdentity() {
+        let selection = AgentQueueSkillSelection(
+            name: "sample-domain-skill",
+            sourcePath: "/tmp/sample-domain-skill/SKILL.md"
+        )
+
+        let row = AgentQueueSkillRowSnapshot(selection: selection)
+
+        XCTAssertEqual(row.id, selection.sourcePath)
+        XCTAssertEqual(row.name, "sample-domain-skill")
+        XCTAssertEqual(row.sourcePath, selection.sourcePath)
+    }
+
     func testSkillCatalogExcludesMandatoryRoles() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-queue-catalog-\(UUID().uuidString)", isDirectory: true)
