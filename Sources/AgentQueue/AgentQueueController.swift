@@ -124,9 +124,6 @@ final class AgentQueueController: ObservableObject {
             case let .dispatch(taskID, workerID):
                 await dispatch(taskID: taskID, workerID: workerID)
 
-            case let .sendEnter(surfaceID):
-                _ = try? await paneAdapter.sendEnter(to: surfaceID)
-
             case let .forwardReport(taskID, _, excerpt):
                 let text = """
                 자동 복구 보고 [\(taskID)]:
@@ -176,8 +173,27 @@ final class AgentQueueController: ObservableObject {
                 workerSurfaceID: worker.surfaceID
             )
         )
-        if let result = try? await paneAdapter.sendText(text, to: worker.surfaceID) {
-            await apply(.dispatchSucceeded(taskID: taskID, workerID: workerID, queued: result.queued))
+        var didSendText = false
+        do {
+            let textResult = try await paneAdapter.sendText(text, to: worker.surfaceID)
+            didSendText = true
+            let enterResult = try await paneAdapter.sendEnter(to: worker.surfaceID)
+            await apply(
+                .dispatchSubmitted(
+                    taskID: taskID,
+                    workerID: workerID,
+                    queued: textResult.queued || enterResult.queued
+                )
+            )
+        } catch {
+            await apply(
+                .dispatchSubmissionFailed(
+                    taskID: taskID,
+                    workerID: workerID,
+                    stage: didSendText ? .enter : .text,
+                    message: error.localizedDescription
+                )
+            )
         }
     }
 

@@ -3,8 +3,13 @@ import Foundation
 enum AgentQueueInputEvent: Equatable, Sendable {
     case queueStarted
     case queuePaused
-    case dispatchSucceeded(taskID: String, workerID: String, queued: Bool)
-    case enterSubmitted(taskID: String, surfaceID: UUID)
+    case dispatchSubmitted(taskID: String, workerID: String, queued: Bool)
+    case dispatchSubmissionFailed(
+        taskID: String,
+        workerID: String,
+        stage: AgentQueueDispatchFailureStage,
+        message: String
+    )
     case reportDetected(AgentQueueDetectedReport)
     case timeout(taskID: String)
     case recoverySent(taskID: String)
@@ -13,7 +18,6 @@ enum AgentQueueInputEvent: Equatable, Sendable {
 
 enum AgentQueueSideEffect: Equatable, Sendable {
     case dispatch(taskID: String, workerID: String)
-    case sendEnter(surfaceID: UUID)
     case forwardReport(taskID: String, fromSurfaceID: UUID, excerpt: String)
     case sendCorrection(taskID: String, workerID: String)
     case sendRecovery(taskID: String, workerID: String)
@@ -44,7 +48,7 @@ enum AgentQueueCore {
             state.queue.status = .paused
             state.queue.updatedAt = now
 
-        case let .dispatchSucceeded(taskID, workerID, _):
+        case let .dispatchSubmitted(taskID, workerID, _):
             if let taskIndex = state.tasks.firstIndex(where: { $0.id == taskID }),
                let workerIndex = state.workers.firstIndex(where: { $0.id == workerID }) {
                 state.tasks[taskIndex].status = .awaitingReport
@@ -53,11 +57,18 @@ enum AgentQueueCore {
                 state.tasks[taskIndex].assignedWorkerSurfaceID = state.workers[workerIndex].surfaceID
                 state.workers[workerIndex].status = .awaitingReport
                 state.workers[workerIndex].currentTaskID = taskID
-                effects.append(.sendEnter(surfaceID: state.workers[workerIndex].surfaceID))
             }
 
-        case .enterSubmitted:
-            break
+        case let .dispatchSubmissionFailed(taskID, workerID, stage, message):
+            if let taskIndex = state.tasks.firstIndex(where: { $0.id == taskID }) {
+                state.tasks[taskIndex].status = stage == .enter ? .blocked : .failed
+                state.tasks[taskIndex].lastError = message
+            }
+            if let workerIndex = state.workers.firstIndex(where: { $0.id == workerID }) {
+                state.workers[workerIndex].status = .offline
+                state.workers[workerIndex].currentTaskID = taskID
+            }
+            state.queue.status = .paused
 
         case let .reportDetected(report):
             guard let taskIndex = state.tasks.firstIndex(where: { $0.id == report.taskID }) else {
@@ -127,7 +138,7 @@ enum AgentQueueCore {
             }
         }
 
-        appendEvent(for: event, state: &state, now: now)
+        appendEvents(for: event, state: &state, now: now)
         return AgentQueueReduceResult(state: state, effects: effects)
     }
 
@@ -207,7 +218,37 @@ enum AgentQueueCore {
         state.workers[workerIndex].currentTaskID = nil
     }
 
-    private static func appendEvent(for event: AgentQueueInputEvent, state: inout AgentQueueState, now: Date) {
+    private static func appendEvents(for event: AgentQueueInputEvent, state: inout AgentQueueState, now: Date) {
+        switch event {
+        case let .dispatchSubmitted(taskID, workerID, _):
+            appendEvent(type: .taskDispatched, taskID: taskID, workerID: workerID, evidence: nil, state: &state, now: now)
+            appendEvent(type: .enterSubmitted, taskID: taskID, workerID: workerID, evidence: nil, state: &state, now: now)
+            state.queue.updatedAt = now
+            return
+
+        case let .dispatchSubmissionFailed(taskID, workerID, stage, message):
+            let worker = state.workers.first(where: { $0.id == workerID })
+            appendEvent(
+                type: .taskFailed,
+                taskID: taskID,
+                workerID: workerID,
+                evidence: AgentQueueLogEvidence(
+                    workspaceID: state.queue.workspaceID,
+                    paneID: worker?.paneID,
+                    surfaceID: worker?.surfaceID,
+                    command: stage.rawValue,
+                    screenExcerpt: message
+                ),
+                state: &state,
+                now: now
+            )
+            state.queue.updatedAt = now
+            return
+
+        default:
+            break
+        }
+
         let logType: AgentQueueLogEventType
         let taskID: String?
         switch event {
@@ -217,12 +258,8 @@ enum AgentQueueCore {
         case .queuePaused:
             logType = .queuePaused
             taskID = nil
-        case let .dispatchSucceeded(id, _, _):
-            logType = .taskDispatched
-            taskID = id
-        case let .enterSubmitted(id, _):
-            logType = .enterSubmitted
-            taskID = id
+        case .dispatchSubmitted, .dispatchSubmissionFailed:
+            return
         case let .reportDetected(report):
             logType = report.location == .wrongPane ? .wrongPaneReportDetected : .reportDetected
             taskID = report.taskID
@@ -237,18 +274,29 @@ enum AgentQueueCore {
             taskID = id
         }
 
+        appendEvent(type: logType, taskID: taskID, workerID: nil, evidence: nil, state: &state, now: now)
+        state.queue.updatedAt = now
+    }
+
+    private static func appendEvent(
+        type: AgentQueueLogEventType,
+        taskID: String?,
+        workerID: String?,
+        evidence: AgentQueueLogEvidence?,
+        state: inout AgentQueueState,
+        now: Date
+    ) {
         state.events.append(
             AgentQueueLogEvent(
                 id: String(format: "event-%04d", state.events.count + 1),
                 queueID: state.queue.id,
                 taskID: taskID,
-                workerID: nil,
-                type: logType,
-                message: "\(logType.rawValue)\(taskID.map { " \($0)" } ?? "")",
-                evidence: nil,
+                workerID: workerID,
+                type: type,
+                message: "\(type.rawValue)\(taskID.map { " \($0)" } ?? "")",
+                evidence: evidence,
                 createdAt: now
             )
         )
-        state.queue.updatedAt = now
     }
 }

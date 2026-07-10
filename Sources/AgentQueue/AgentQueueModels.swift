@@ -5,6 +5,11 @@ enum AgentQueueStatus: String, Codable, Equatable, Sendable {
     case running
 }
 
+enum AgentQueueDispatchFailureStage: String, Codable, Equatable, Sendable {
+    case text
+    case enter
+}
+
 enum AgentTaskStatus: String, Codable, Equatable, Sendable {
     case queued
     case dispatching
