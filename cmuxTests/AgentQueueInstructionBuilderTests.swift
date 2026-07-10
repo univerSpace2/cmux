@@ -156,6 +156,8 @@ final class AgentQueueInstructionBuilderTests: XCTestCase {
         XCTAssertTrue(
             text.contains("\"request_id\":\"11111111-2222-3333-4444-555555555555\"")
         )
+        XCTAssertTrue(text.contains("\"space_encoding\":\"unicode_escape\""))
+        XCTAssertTrue(text.contains("작업\\u0020제목"))
         XCTAssertFalse(
             text.contains("[/AGENT_QUEUE_TASKS]"),
             "The submitted request must not echo a complete response block that the queue can import."

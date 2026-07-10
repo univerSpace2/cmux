@@ -55,6 +55,22 @@ import Testing
         ))
     }
 
+    @Test func parsesEscapedSpaceProtocolSplitInsideAnEscapeSequence() throws {
+        let text = """
+        [AGENT_QUEUE_TASKS]
+        {"space_encoding":"unicode_escape","request_id":"11111111-2222-3333-4444-
+          555555555555","tasks":[{"title":"런타임\\u0
+          020검증","body":"No-op\\u0020verification"}]}
+        [/AGENT_QUEUE_TASKS]
+        """
+
+        let detected = try #require(AgentQueuePlanDetector.detect(in: text)).get()
+
+        #expect(detected.tasks == [
+            AgentQueuePlannedTask(title: "런타임 검증", body: "No-op verification"),
+        ])
+    }
+
     @Test func ignoresTextWithoutACompleteMarkerPair() {
         #expect(AgentQueuePlanDetector.detect(in: "noise only") == nil)
         #expect(AgentQueuePlanDetector.detect(in: "[AGENT_QUEUE_TASKS]\n{}") == nil)
