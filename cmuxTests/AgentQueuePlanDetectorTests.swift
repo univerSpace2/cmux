@@ -38,6 +38,24 @@ import Testing
         #expect(AgentQueuePlanDetector.detect(in: "[AGENT_QUEUE_TASKS]\n{}") == nil)
     }
 
+    @Test func usesTheNearestOpeningMarkerForTheLatestCompletedResponse() throws {
+        let text = """
+        echoed request
+        [AGENT_QUEUE_TASKS]
+        {"request_id":"11111111-2222-3333-4444-555555555555","tasks":[{"title":"example","body":"example"}]}
+        planner response
+        [AGENT_QUEUE_TASKS]
+        {"request_id":"11111111-2222-3333-4444-555555555555","tasks":[{"title":"Real task","body":"Do real work"}]}
+        [/AGENT_QUEUE_TASKS]
+        """
+
+        let detected = try #require(AgentQueuePlanDetector.detect(in: text)).get()
+
+        #expect(detected.tasks == [
+            AgentQueuePlannedTask(title: "Real task", body: "Do real work"),
+        ])
+    }
+
     @Test func rejectsMalformedJSON() throws {
         let result = try #require(AgentQueuePlanDetector.detect(in: """
         [AGENT_QUEUE_TASKS]
