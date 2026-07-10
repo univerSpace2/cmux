@@ -23,7 +23,8 @@ enum AgentQueueObservedCodexState: Equatable, Sendable {
 enum AgentQueueCodexReadinessClassifier {
     static func classify(
         observedState: AgentQueueObservedCodexState?,
-        shellActivity: AgentQueueShellActivity
+        shellActivity: AgentQueueShellActivity,
+        visibleText: String = ""
     ) -> AgentQueueCodexReadiness {
         switch observedState {
         case .idle:
@@ -31,6 +32,13 @@ enum AgentQueueCodexReadinessClassifier {
         case .working, .needsInput:
             return .busy
         case nil:
+            if shellActivity == .commandRunning,
+               visibleText.contains("OpenAI Codex"),
+               visibleText.split(whereSeparator: \Character.isNewline).contains(where: { line in
+                   line.contains("· Ready ·")
+               }) {
+                return .idle
+            }
             return shellActivity == .promptIdle ? .absent : .starting
         }
     }
@@ -143,6 +151,8 @@ final class AppAgentQueuePaneAdapter: AgentQueuePaneAdapting {
 
     func codexReadiness(surfaceID: UUID) async -> AgentQueueCodexReadiness {
         guard let terminalPanel = terminalPanel(surfaceID: surfaceID) else { return .absent }
+        let shellActivity = shellActivity(for: terminalPanel)
+        let visibleText = visibleText(for: terminalPanel)
         if let service = TerminalController.shared.agentChatTranscriptService {
             _ = await service.observeAgentProcessesForListing(
                 surfaceIDs: [surfaceID],
@@ -164,20 +174,40 @@ final class AppAgentQueuePaneAdapter: AgentQueuePaneAdapting {
                 case .ended:
                     return AgentQueueCodexReadinessClassifier.classify(
                         observedState: nil,
-                        shellActivity: shellActivity(for: terminalPanel)
+                        shellActivity: shellActivity,
+                        visibleText: visibleText
                     )
                 }
                 return AgentQueueCodexReadinessClassifier.classify(
                     observedState: observedState,
-                    shellActivity: shellActivity(for: terminalPanel)
+                    shellActivity: shellActivity,
+                    visibleText: visibleText
                 )
             }
         }
 
         return AgentQueueCodexReadinessClassifier.classify(
             observedState: nil,
-            shellActivity: shellActivity(for: terminalPanel)
+            shellActivity: shellActivity,
+            visibleText: visibleText
         )
+    }
+
+    private func visibleText(for terminalPanel: TerminalPanel) -> String {
+        guard let rawSnapshot = TerminalController.shared.readTerminalTextRawSnapshot(
+            terminalPanel: terminalPanel,
+            includeScrollback: false
+        ) else {
+            return ""
+        }
+        guard case .success(let value) = TerminalController.terminalTextPayload(
+            from: rawSnapshot,
+            includeScrollback: false,
+            lineLimit: 40
+        ) else {
+            return ""
+        }
+        return value.text
     }
 
     private func terminalPanel(surfaceID: UUID) -> TerminalPanel? {
