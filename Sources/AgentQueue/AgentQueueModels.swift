@@ -117,6 +117,7 @@ struct AgentQueueState: Codable, Equatable, Sendable {
     var workers: [AgentWorker]
     var events: [AgentQueueLogEvent]
     var preparation: AgentQueuePreparationState? = nil
+    var planningRequest: AgentQueuePlanningRequest? = nil
 }
 
 enum AgentTaskIDFactory {
