@@ -4,9 +4,14 @@ import Foundation
 @MainActor
 final class AgentQueueController: ObservableObject {
     @Published private(set) var state: AgentQueueState
+    @Published private(set) var pendingRoleSkillChanges: [AgentQueueRoleSkillChange] = []
 
     private let paneAdapter: AgentQueuePaneAdapting
     private let store: AgentQueueStore?
+    private let roleSkillInstaller: (any AgentQueueRoleSkillInstalling)?
+    private let workerPreparer: (any AgentQueueWorkerPreparing)?
+    private let skillCatalog: AgentQueueSkillCatalog?
+    private let skillRootDirectory: String?
     private let pollInterval: Duration
     private let sleep: @Sendable (Duration) async throws -> Void
     private let now: () -> Date
@@ -25,6 +30,10 @@ final class AgentQueueController: ObservableObject {
         initialState: AgentQueueState,
         paneAdapter: AgentQueuePaneAdapting,
         store: AgentQueueStore?,
+        roleSkillInstaller: (any AgentQueueRoleSkillInstalling)? = nil,
+        workerPreparer: (any AgentQueueWorkerPreparing)? = nil,
+        skillCatalog: AgentQueueSkillCatalog? = nil,
+        skillRootDirectory: String? = nil,
         pollInterval: Duration = .seconds(1),
         sleep: @escaping @Sendable (Duration) async throws -> Void = { duration in
             try await Task.sleep(for: duration)
@@ -34,10 +43,160 @@ final class AgentQueueController: ObservableObject {
         state = initialState
         self.paneAdapter = paneAdapter
         self.store = store
+        self.roleSkillInstaller = roleSkillInstaller
+        self.workerPreparer = workerPreparer
+        self.skillCatalog = skillCatalog
+        self.skillRootDirectory = skillRootDirectory
         self.pollInterval = pollInterval
         self.sleep = sleep
         self.now = now
         nextSequence = initialState.tasks.count + 1
+    }
+
+    var canStart: Bool {
+        state.preparation?.phase == .ready &&
+            state.tasks.contains(where: { $0.status == .queued }) &&
+            state.workers.contains(where: { $0.enabled && $0.status == .idle })
+    }
+
+    func setPreparationConfiguration(_ configuration: AgentQueuePreparationConfiguration) {
+        state.preparation = AgentQueuePreparationState(
+            configuration: configuration,
+            phase: .notPrepared,
+            completedWorkerCount: 0,
+            errorMessage: nil
+        )
+        pendingRoleSkillChanges = []
+        state.queue.status = .paused
+        state.queue.updatedAt = now()
+        persistSoon()
+    }
+
+    func skillOptions(query: String = "") async -> [AgentQueueSkillSelection] {
+        guard let skillCatalog else { return [] }
+        return await skillCatalog.options(rootDirectory: skillRootDirectory, query: query)
+    }
+
+    func prepareWorkers(allowSkillChanges: Bool) async {
+        let configuration = state.preparation?.configuration ?? .defaultConfiguration
+        updatePreparation(
+            configuration: configuration,
+            phase: .checkingSkills,
+            completedWorkerCount: 0,
+            errorMessage: nil
+        )
+
+        do {
+            let changes: [AgentQueueRoleSkillChange]
+            do {
+                changes = try await roleSkillInstaller?.pendingChanges() ?? []
+            } catch {
+                throw AgentQueuePreparationError.skillInstallationFailed(error.localizedDescription)
+            }
+            pendingRoleSkillChanges = changes
+
+            if !changes.isEmpty && !allowSkillChanges {
+                updatePreparation(
+                    configuration: configuration,
+                    phase: .awaitingSkillConfirmation,
+                    completedWorkerCount: 0,
+                    errorMessage: nil
+                )
+                persistSoon()
+                return
+            }
+
+            if !changes.isEmpty {
+                do {
+                    try await roleSkillInstaller?.apply(changes)
+                } catch {
+                    throw AgentQueuePreparationError.skillInstallationFailed(error.localizedDescription)
+                }
+            }
+            pendingRoleSkillChanges = []
+
+            guard let workerPreparer else {
+                throw AgentQueuePreparationError.plannerUnavailable
+            }
+            let activeWorkerSurfaceIDs = Set(
+                state.workers.compactMap { worker in
+                    worker.status.isActiveForPreparation ? worker.surfaceID : nil
+                }
+            )
+            let prepared = try await workerPreparer.prepare(
+                configuration: configuration,
+                plannerSurfaceID: state.queue.plannerSurfaceID,
+                existingWorkerSurfaceIDs: state.workers.map(\.surfaceID),
+                activeWorkerSurfaceIDs: activeWorkerSurfaceIDs,
+                progress: { [weak self] phase, completedWorkerCount in
+                    self?.updatePreparation(
+                        configuration: configuration,
+                        phase: phase,
+                        completedWorkerCount: completedWorkerCount,
+                        errorMessage: nil
+                    )
+                }
+            )
+            guard prepared.plannerSurfaceID == state.queue.plannerSurfaceID else {
+                throw AgentQueuePreparationError.plannerUnavailable
+            }
+
+            registerPreparedWorkers(prepared.workerSurfaceIDs)
+            updatePreparation(
+                configuration: configuration,
+                phase: .ready,
+                completedWorkerCount: prepared.workerSurfaceIDs.count,
+                errorMessage: nil
+            )
+            state.queue.updatedAt = now()
+            persistSoon()
+        } catch {
+            state.queue.status = .paused
+            updatePreparation(
+                configuration: configuration,
+                phase: .failed,
+                completedWorkerCount: state.preparation?.completedWorkerCount ?? 0,
+                errorMessage: preparationErrorMessage(error)
+            )
+            state.queue.updatedAt = now()
+            persistSoon()
+        }
+    }
+
+    func restorePersistedState() async {
+        guard let store else { return }
+        let workspaceID = state.queue.workspaceID
+        guard var restored = try? await store.load(workspaceID: workspaceID),
+              restored.queue.workspaceID == workspaceID else {
+            return
+        }
+
+        let plannerAvailable = await isAvailableTerminal(restored.queue.plannerSurfaceID)
+        var availableWorkers: [AgentWorker] = []
+        if restored.preparation != nil {
+            for worker in restored.workers {
+                if await isAvailableTerminal(worker.surfaceID) {
+                    availableWorkers.append(worker)
+                }
+            }
+        }
+        restored.workers = availableWorkers
+        restored.queue.status = .paused
+
+        if var preparation = restored.preparation {
+            let hasConfiguredWorkers = availableWorkers.count == preparation.configuration.workerCount
+            if !plannerAvailable || !hasConfiguredWorkers || preparation.phase != .ready {
+                preparation.phase = .notPrepared
+                preparation.completedWorkerCount = 0
+                preparation.errorMessage = nil
+            }
+            restored.preparation = preparation
+        }
+
+        state = restored
+        pendingRoleSkillChanges = []
+        nextSequence = restored.tasks.count + 1
+        persistSoon()
     }
 
     func createTasks(from text: String) {
@@ -95,6 +254,7 @@ final class AgentQueueController: ObservableObject {
     }
 
     func start() async {
+        guard canStart else { return }
         await apply(.queueStarted)
     }
 
@@ -228,7 +388,7 @@ final class AgentQueueController: ObservableObject {
                       let worker = state.workers.first(where: { $0.id == workerID }) else { continue }
                 let text = AgentQueueInstructionBuilder.recoveryPrompt(
                     task: task,
-                    plannerSurfaceID: state.queue.plannerSurfaceID
+                    additionalSkill: state.preparation?.configuration.additionalSkill
                 )
                 _ = try? await paneAdapter.sendText(text, to: worker.surfaceID)
                 _ = try? await paneAdapter.sendEnter(to: worker.surfaceID)
@@ -248,8 +408,8 @@ final class AgentQueueController: ObservableObject {
         let text = AgentQueueInstructionBuilder.workerInstruction(
             context: AgentQueueInstructionContext(
                 task: task,
-                plannerSurfaceID: state.queue.plannerSurfaceID,
-                workerSurfaceID: worker.surfaceID
+                workerSurfaceID: worker.surfaceID,
+                additionalSkill: state.preparation?.configuration.additionalSkill
             )
         )
         var didSendText = false
@@ -281,6 +441,108 @@ final class AgentQueueController: ObservableObject {
         let snapshot = state
         Task {
             try? await store.save(AgentQueueStore.pruneEvents(in: snapshot, limit: 500))
+        }
+    }
+
+    private func updatePreparation(
+        configuration: AgentQueuePreparationConfiguration,
+        phase: AgentQueuePreparationPhase,
+        completedWorkerCount: Int,
+        errorMessage: String?
+    ) {
+        state.preparation = AgentQueuePreparationState(
+            configuration: configuration,
+            phase: phase,
+            completedWorkerCount: completedWorkerCount,
+            errorMessage: errorMessage
+        )
+    }
+
+    private func registerPreparedWorkers(_ surfaceIDs: [UUID]) {
+        let existingBySurfaceID = Dictionary(
+            uniqueKeysWithValues: state.workers.map { ($0.surfaceID, $0) }
+        )
+        let currentNow = now()
+        state.workers = surfaceIDs.enumerated().map { index, surfaceID in
+            if var existing = existingBySurfaceID[surfaceID] {
+                existing.id = "worker-\(index + 1)"
+                existing.workspaceID = state.queue.workspaceID
+                existing.paneID = surfaceID
+                existing.surfaceID = surfaceID
+                existing.label = Self.workerLabel(index: index)
+                existing.lastSeenAt = currentNow
+                return existing
+            }
+            return AgentWorker(
+                id: "worker-\(index + 1)",
+                workspaceID: state.queue.workspaceID,
+                paneID: surfaceID,
+                surfaceID: surfaceID,
+                label: Self.workerLabel(index: index),
+                enabled: true,
+                status: .idle,
+                currentTaskID: nil,
+                lastSeenAt: currentNow
+            )
+        }
+    }
+
+    private func isAvailableTerminal(_ surfaceID: UUID) async -> Bool {
+        do {
+            _ = try await paneAdapter.readText(surfaceID: surfaceID, lines: 1)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func preparationErrorMessage(_ error: Error) -> String {
+        guard let error = error as? AgentQueuePreparationError else {
+            return error.localizedDescription
+        }
+        switch error {
+        case let .invalidWorkerCount(count):
+            return String(
+                format: String(
+                    localized: "agentQueue.preparation.error.invalidWorkerCount",
+                    defaultValue: "Worker 수 %d은(는) 지원되지 않습니다."
+                ),
+                count
+            )
+        case let .activeWorkerWouldClose(surfaceID):
+            return String(
+                format: String(
+                    localized: "agentQueue.preparation.error.activeWorkerWouldClose",
+                    defaultValue: "작업 중인 worker %@을(를) 닫을 수 없습니다."
+                ),
+                surfaceID.uuidString.lowercased()
+            )
+        case .plannerUnavailable:
+            return String(
+                localized: "agentQueue.preparation.error.plannerUnavailable",
+                defaultValue: "Planner terminal을 사용할 수 없습니다."
+            )
+        case .plannerBusy:
+            return String(
+                localized: "agentQueue.preparation.error.plannerBusy",
+                defaultValue: "Planner Codex가 작업 중입니다."
+            )
+        case let .codexReadinessTimedOut(surfaceID):
+            return String(
+                format: String(
+                    localized: "agentQueue.preparation.error.codexTimeout",
+                    defaultValue: "Codex 준비 대기 시간이 초과되었습니다: %@"
+                ),
+                surfaceID.uuidString.lowercased()
+            )
+        case let .skillInstallationFailed(message):
+            return String(
+                format: String(
+                    localized: "agentQueue.preparation.error.skillInstallation",
+                    defaultValue: "역할 스킬 설치에 실패했습니다: %@"
+                ),
+                message
+            )
         }
     }
 
@@ -319,6 +581,13 @@ final class AgentQueueController: ObservableObject {
         if collapsed.count <= 80 { return collapsed }
         return "\(collapsed.prefix(80))…"
     }
+
+    private static func workerLabel(index: Int) -> String {
+        String.localizedStringWithFormat(
+            String(localized: "agentQueue.worker.defaultLabelFormat", defaultValue: "Worker %d"),
+            index + 1
+        )
+    }
 }
 
 private extension AgentTaskStatus {
@@ -332,12 +601,25 @@ private extension AgentTaskStatus {
     }
 }
 
+private extension AgentWorkerStatus {
+    var isActiveForPreparation: Bool {
+        switch self {
+        case .assigned, .running, .awaitingReport, .recovering:
+            return true
+        case .idle, .offline:
+            return false
+        }
+    }
+}
+
 @MainActor
 final class AgentQueueControllerFactory {
     static let shared = AgentQueueControllerFactory()
 
     private var controllers: [UUID: AgentQueueController] = [:]
     private let store = AgentQueueStore()
+    private let roleSkillInstaller = AgentQueueRoleSkillInstaller()
+    private let skillCatalog = AgentQueueSkillCatalog()
 
     func controller(workspace: Workspace, tabManager: TabManager) -> AgentQueueController {
         if let existing = controllers[workspace.id] {
@@ -346,7 +628,6 @@ final class AgentQueueControllerFactory {
 
         let currentNow = Date()
         let plannerSurfaceID = workspace.focusedPanelId
-            ?? workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }.first
             ?? UUID()
         let queue = AgentQueue(
             id: "queue-\(workspace.id.uuidString.lowercased())",
@@ -356,34 +637,35 @@ final class AgentQueueControllerFactory {
             createdAt: currentNow,
             updatedAt: currentNow
         )
-        let workers = workspace.panels.keys
-            .filter { $0 != plannerSurfaceID }
-            .sorted { $0.uuidString < $1.uuidString }
-            .enumerated()
-            .map { index, surfaceID in
-                AgentWorker(
-                    id: "worker-\(index + 1)",
-                    workspaceID: workspace.id,
-                    paneID: surfaceID,
-                    surfaceID: surfaceID,
-                    label: String.localizedStringWithFormat(
-                        String(localized: "agentQueue.worker.defaultLabelFormat", defaultValue: "Worker %d"),
-                        index + 1
-                    ),
-                    enabled: true,
-                    status: .idle,
-                    currentTaskID: nil,
-                    lastSeenAt: currentNow
-                )
-            }
-
         let controller = AgentQueueController(
-            initialState: AgentQueueState(queue: queue, tasks: [], workers: workers, events: []),
+            initialState: AgentQueueState(
+                queue: queue,
+                tasks: [],
+                workers: [],
+                events: [],
+                preparation: AgentQueuePreparationState(
+                    configuration: .defaultConfiguration,
+                    phase: .notPrepared,
+                    completedWorkerCount: 0,
+                    errorMessage: nil
+                )
+            ),
             paneAdapter: AppAgentQueuePaneAdapter(tabManager: tabManager),
-            store: store
+            store: store,
+            roleSkillInstaller: roleSkillInstaller,
+            workerPreparer: AgentQueueWorkerPreparationService(
+                workspace: workspace,
+                tabManager: tabManager
+            ),
+            skillCatalog: skillCatalog,
+            skillRootDirectory: workspace.currentDirectory
         )
-        controller.startMonitoring()
         controllers[workspace.id] = controller
+        Task { [weak controller] in
+            guard let controller else { return }
+            await controller.restorePersistedState()
+            controller.startMonitoring()
+        }
         return controller
     }
 }

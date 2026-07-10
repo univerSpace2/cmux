@@ -23,7 +23,12 @@ struct AgentQueueRoleSkillChange: Equatable, Sendable {
     var kind: Kind
 }
 
-actor AgentQueueRoleSkillInstaller {
+protocol AgentQueueRoleSkillInstalling: Sendable {
+    func pendingChanges() async throws -> [AgentQueueRoleSkillChange]
+    func apply(_ changes: [AgentQueueRoleSkillChange]) async throws
+}
+
+actor AgentQueueRoleSkillInstaller: AgentQueueRoleSkillInstalling {
     private let sourceRoot: URL?
     private let destinationRoot: URL
     private let fileManager: FileManager
@@ -39,7 +44,7 @@ actor AgentQueueRoleSkillInstaller {
         self.fileManager = fileManager
     }
 
-    func pendingChanges() throws -> [AgentQueueRoleSkillChange] {
+    func pendingChanges() async throws -> [AgentQueueRoleSkillChange] {
         guard let sourceRoot else {
             throw missingFileError(path: "Bundle.main.resourceURL")
         }
@@ -69,7 +74,7 @@ actor AgentQueueRoleSkillInstaller {
         }
     }
 
-    func apply(_ changes: [AgentQueueRoleSkillChange]) throws {
+    func apply(_ changes: [AgentQueueRoleSkillChange]) async throws {
         guard let sourceRoot else {
             throw missingFileError(path: "Bundle.main.resourceURL")
         }
