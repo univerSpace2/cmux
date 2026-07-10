@@ -25,11 +25,12 @@ enum AgentQueueCodexReadinessClassifier {
         observedState: AgentQueueObservedCodexState?,
         shellActivity: AgentQueueShellActivity,
         visibleText: String = "",
-        visibleReadyFallbackAllowed: Bool = true
+        visibleReadyFallbackAllowed: Bool = true,
+        observedIdleAllowed: Bool = true
     ) -> AgentQueueCodexReadiness {
         switch observedState {
         case .idle:
-            return .idle
+            return observedIdleAllowed ? .idle : .starting
         case .working, .needsInput:
             return .busy
         case nil:
@@ -172,15 +173,17 @@ final class AppAgentQueuePaneAdapter: AgentQueuePaneAdapting {
                     record.state != .ended &&
                     record.surfaceID.flatMap(UUID.init(uuidString:)) == surfaceID
             }) {
-                visibleReadyFallbackBlockedSurfaceIDs.remove(surfaceID)
+                let observedIdleAllowed = !visibleReadyFallbackBlockedSurfaceIDs.contains(surfaceID)
                 let observedState: AgentQueueObservedCodexState
                 switch record.state {
                 case .idle:
                     observedState = .idle
                 case .working:
                     observedState = .working
+                    visibleReadyFallbackBlockedSurfaceIDs.remove(surfaceID)
                 case .needsInput:
                     observedState = .needsInput
+                    visibleReadyFallbackBlockedSurfaceIDs.remove(surfaceID)
                 case .ended:
                     return AgentQueueCodexReadinessClassifier.classify(
                         observedState: nil,
@@ -191,7 +194,8 @@ final class AppAgentQueuePaneAdapter: AgentQueuePaneAdapting {
                 return AgentQueueCodexReadinessClassifier.classify(
                     observedState: observedState,
                     shellActivity: shellActivity,
-                    visibleText: visibleText
+                    visibleText: visibleText,
+                    observedIdleAllowed: observedIdleAllowed
                 )
             }
         }
