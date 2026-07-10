@@ -33,6 +33,28 @@ import Testing
         ))
     }
 
+    @Test func parsesPlannerPayloadSplitByTerminalSoftWraps() throws {
+        let text = """
+        [AGENT_QUEUE_TASKS]
+        {"request_id":"11111111-2222-3333-4444-
+          555555555555","tasks":[{"title":"Runtime imported
+          task","body":"No-op runtime verification task"}]}
+        [/AGENT_QUEUE_TASKS]
+        """
+
+        let detected = try #require(AgentQueuePlanDetector.detect(in: text)).get()
+
+        #expect(detected == AgentQueuePlannedTasks(
+            requestID: requestID,
+            tasks: [
+                AgentQueuePlannedTask(
+                    title: "Runtime imported task",
+                    body: "No-op runtime verification task"
+                ),
+            ]
+        ))
+    }
+
     @Test func ignoresTextWithoutACompleteMarkerPair() {
         #expect(AgentQueuePlanDetector.detect(in: "noise only") == nil)
         #expect(AgentQueuePlanDetector.detect(in: "[AGENT_QUEUE_TASKS]\n{}") == nil)
