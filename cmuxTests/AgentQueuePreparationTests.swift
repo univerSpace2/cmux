@@ -7,6 +7,201 @@ import XCTest
 #endif
 
 final class AgentQueuePreparationTests: XCTestCase {
+    @MainActor
+    func testPlainIdlePlannerLaunchesCodexBeforeApplyingPlannerRole() async throws {
+        let planner = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+        let worker = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
+        let driver = FakeAgentQueueWorkspaceDriver(
+            plannerSurfaceID: planner,
+            createdWorkerSurfaceIDs: [worker]
+        )
+        driver.readinessSequences[planner] = [.absent, .starting, .idle, .busy, .idle]
+        driver.readinessSequences[worker] = [.starting, .idle, .busy, .idle]
+        let service = makePreparationService(driver: driver)
+
+        _ = try await service.prepare(
+            configuration: .defaultConfiguration,
+            plannerSurfaceID: planner,
+            existingWorkerSurfaceIDs: [],
+            activeWorkerSurfaceIDs: [],
+            progress: { _, _ in }
+        )
+
+        XCTAssertEqual(driver.sentTexts.first?.surfaceID, planner)
+        XCTAssertEqual(driver.sentTexts.first?.text, "codex")
+        XCTAssertTrue(driver.sentTexts.contains { item in
+            item.surfaceID == planner && item.text == "$cmux-agent-queue-planner"
+        })
+    }
+
+    @MainActor
+    func testIdleCodexPlannerIsReusedWithoutLaunchingAnotherProcess() async throws {
+        let planner = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+        let worker = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
+        let driver = FakeAgentQueueWorkspaceDriver(
+            plannerSurfaceID: planner,
+            createdWorkerSurfaceIDs: [worker]
+        )
+        driver.readinessSequences[planner] = [.idle, .busy, .idle]
+        driver.readinessSequences[worker] = [.starting, .idle, .busy, .idle]
+
+        _ = try await makePreparationService(driver: driver).prepare(
+            configuration: .defaultConfiguration,
+            plannerSurfaceID: planner,
+            existingWorkerSurfaceIDs: [],
+            activeWorkerSurfaceIDs: [],
+            progress: { _, _ in }
+        )
+
+        XCTAssertFalse(driver.sentTexts.contains { $0.surfaceID == planner && $0.text == "codex" })
+        XCTAssertEqual(
+            driver.sentTexts.filter { $0.surfaceID == planner }.map(\.text),
+            ["$cmux-agent-queue-planner"]
+        )
+    }
+
+    @MainActor
+    func testBusyPlannerFailsWithoutSendingInputOrCreatingWorkers() async {
+        let planner = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+        let driver = FakeAgentQueueWorkspaceDriver(plannerSurfaceID: planner)
+        driver.readinessSequences[planner] = [.busy]
+
+        do {
+            _ = try await makePreparationService(driver: driver).prepare(
+                configuration: .defaultConfiguration,
+                plannerSurfaceID: planner,
+                existingWorkerSurfaceIDs: [],
+                activeWorkerSurfaceIDs: [],
+                progress: { _, _ in }
+            )
+            XCTFail("Expected busy planner to fail")
+        } catch {
+            XCTAssertEqual(error as? AgentQueuePreparationError, .plannerBusy)
+        }
+
+        XCTAssertTrue(driver.sentTexts.isEmpty)
+        XCTAssertTrue(driver.createdSplits.isEmpty)
+    }
+
+    @MainActor
+    func testDefaultPreparationCreatesOneUnfocusedRightCodexSplitAtWorkspaceCWD() async throws {
+        let planner = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+        let worker = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
+        let driver = FakeAgentQueueWorkspaceDriver(
+            plannerSurfaceID: planner,
+            workingDirectory: "/tmp/project",
+            createdWorkerSurfaceIDs: [worker]
+        )
+        driver.readinessSequences[planner] = [.idle, .busy, .idle]
+        driver.readinessSequences[worker] = [.starting, .idle, .busy, .idle]
+
+        let prepared = try await makePreparationService(driver: driver).prepare(
+            configuration: .defaultConfiguration,
+            plannerSurfaceID: planner,
+            existingWorkerSurfaceIDs: [],
+            activeWorkerSurfaceIDs: [],
+            progress: { _, _ in }
+        )
+
+        XCTAssertEqual(driver.createdSplits, [
+            AgentQueueWorkerSplitRequest(
+                sourceSurfaceID: planner,
+                direction: .right,
+                focus: false,
+                workingDirectory: "/tmp/project",
+                initialCommand: "codex"
+            ),
+        ])
+        XCTAssertEqual(prepared.workerSurfaceIDs, [worker])
+        XCTAssertEqual(prepared.workingDirectory, "/tmp/project")
+    }
+
+    @MainActor
+    func testPreparationAppliesSameOptionalSkillToEveryWorker() async throws {
+        let planner = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+        let firstWorker = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
+        let secondWorker = UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
+        let driver = FakeAgentQueueWorkspaceDriver(
+            plannerSurfaceID: planner,
+            createdWorkerSurfaceIDs: [firstWorker, secondWorker]
+        )
+        driver.readinessSequences[planner] = [.idle, .busy, .idle]
+        driver.readinessSequences[firstWorker] = [.starting, .idle, .busy, .idle]
+        driver.readinessSequences[secondWorker] = [.starting, .idle, .busy, .idle]
+        let configuration = try AgentQueuePreparationConfiguration(
+            workerCount: 2,
+            additionalSkill: AgentQueueSkillSelection(
+                name: "sample-domain-skill",
+                sourcePath: "/tmp/sample-domain-skill/SKILL.md"
+            )
+        )
+
+        _ = try await makePreparationService(driver: driver).prepare(
+            configuration: configuration,
+            plannerSurfaceID: planner,
+            existingWorkerSurfaceIDs: [],
+            activeWorkerSurfaceIDs: [],
+            progress: { _, _ in }
+        )
+
+        for worker in [firstWorker, secondWorker] {
+            XCTAssertEqual(
+                driver.sentTexts.filter { $0.surfaceID == worker }.map(\.text),
+                ["$cmux-agent-queue-worker $sample-domain-skill"]
+            )
+        }
+    }
+
+    @MainActor
+    func testReadinessTimeoutNamesTheSurface() async {
+        let planner = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+        let driver = FakeAgentQueueWorkspaceDriver(plannerSurfaceID: planner)
+        driver.readinessSequences[planner] = [.absent, .starting]
+        let service = AgentQueueWorkerPreparationService(
+            driver: driver,
+            readinessTimeout: .zero,
+            pollInterval: .zero,
+            sleep: { _ in }
+        )
+
+        do {
+            _ = try await service.prepare(
+                configuration: .defaultConfiguration,
+                plannerSurfaceID: planner,
+                existingWorkerSurfaceIDs: [],
+                activeWorkerSurfaceIDs: [],
+                progress: { _, _ in }
+            )
+            XCTFail("Expected readiness timeout")
+        } catch {
+            XCTAssertEqual(error as? AgentQueuePreparationError, .codexReadinessTimedOut(planner))
+        }
+    }
+
+    @MainActor
+    func testReducingWorkersClosesOnlyReconciliationPlanSurplus() async throws {
+        let planner = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+        let keepWorker = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
+        let closeWorker = UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
+        let unrelated = UUID(uuidString: "dddddddd-dddd-dddd-dddd-dddddddddddd")!
+        let driver = FakeAgentQueueWorkspaceDriver(plannerSurfaceID: planner)
+        driver.terminalSurfaceIDs.formUnion([keepWorker, closeWorker, unrelated])
+        driver.readinessSequences[planner] = [.idle, .busy, .idle]
+        driver.readinessSequences[keepWorker] = [.idle, .busy, .idle]
+
+        let prepared = try await makePreparationService(driver: driver).prepare(
+            configuration: .defaultConfiguration,
+            plannerSurfaceID: planner,
+            existingWorkerSurfaceIDs: [keepWorker, closeWorker],
+            activeWorkerSurfaceIDs: [],
+            progress: { _, _ in }
+        )
+
+        XCTAssertEqual(driver.closedSurfaceIDs, [closeWorker])
+        XCTAssertFalse(driver.closedSurfaceIDs.contains(unrelated))
+        XCTAssertEqual(prepared.workerSurfaceIDs, [keepWorker])
+    }
+
     func testPreparationConfigurationDefaultsToOneWorkerAndRejectsOutOfRangeCounts() throws {
         XCTAssertEqual(AgentQueuePreparationConfiguration.defaultConfiguration.workerCount, 1)
         XCTAssertNil(AgentQueuePreparationConfiguration.defaultConfiguration.additionalSkill)
@@ -194,5 +389,83 @@ final class AgentQueuePreparationTests: XCTestCase {
         root
             .appendingPathComponent(role.rawValue, isDirectory: true)
             .appendingPathComponent("SKILL.md")
+    }
+
+    @MainActor
+    private func makePreparationService(
+        driver: FakeAgentQueueWorkspaceDriver
+    ) -> AgentQueueWorkerPreparationService {
+        AgentQueueWorkerPreparationService(
+            driver: driver,
+            readinessTimeout: .seconds(1),
+            pollInterval: .zero,
+            sleep: { _ in }
+        )
+    }
+}
+
+@MainActor
+private final class FakeAgentQueueWorkspaceDriver: AgentQueueWorkspaceDriving {
+    var terminalSurfaceIDs: Set<UUID>
+    var shellActivityBySurface: [UUID: AgentQueueShellActivity]
+    var readinessSequences: [UUID: [AgentQueueCodexReadiness]] = [:]
+    var sentTexts: [(surfaceID: UUID, text: String)] = []
+    var enterSurfaceIDs: [UUID] = []
+    var createdSplits: [AgentQueueWorkerSplitRequest] = []
+    var closedSurfaceIDs: [UUID] = []
+    var createdWorkerSurfaceIDs: [UUID]
+    let workingDirectory: String
+
+    init(
+        plannerSurfaceID: UUID,
+        workingDirectory: String = "/tmp/project",
+        createdWorkerSurfaceIDs: [UUID] = []
+    ) {
+        terminalSurfaceIDs = [plannerSurfaceID]
+        shellActivityBySurface = [plannerSurfaceID: .promptIdle]
+        self.workingDirectory = workingDirectory
+        self.createdWorkerSurfaceIDs = createdWorkerSurfaceIDs
+    }
+
+    func isTerminalSurface(_ surfaceID: UUID) -> Bool {
+        terminalSurfaceIDs.contains(surfaceID)
+    }
+
+    func shellActivity(surfaceID: UUID) -> AgentQueueShellActivity {
+        shellActivityBySurface[surfaceID] ?? .unknown
+    }
+
+    func createWorkerSplit(_ request: AgentQueueWorkerSplitRequest) -> UUID? {
+        createdSplits.append(request)
+        guard !createdWorkerSurfaceIDs.isEmpty else { return nil }
+        let surfaceID = createdWorkerSurfaceIDs.removeFirst()
+        terminalSurfaceIDs.insert(surfaceID)
+        shellActivityBySurface[surfaceID] = .commandRunning
+        return surfaceID
+    }
+
+    func closeWorkerSurface(_ surfaceID: UUID) -> Bool {
+        closedSurfaceIDs.append(surfaceID)
+        terminalSurfaceIDs.remove(surfaceID)
+        return true
+    }
+
+    func codexReadiness(surfaceID: UUID) async -> AgentQueueCodexReadiness {
+        guard var sequence = readinessSequences[surfaceID], let first = sequence.first else {
+            return .idle
+        }
+        if sequence.count > 1 {
+            sequence.removeFirst()
+            readinessSequences[surfaceID] = sequence
+        }
+        return first
+    }
+
+    func sendText(_ text: String, to surfaceID: UUID) async throws {
+        sentTexts.append((surfaceID, text))
+    }
+
+    func sendEnter(to surfaceID: UUID) async throws {
+        enterSurfaceIDs.append(surfaceID)
     }
 }

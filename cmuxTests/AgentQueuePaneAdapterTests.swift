@@ -7,6 +7,44 @@ import XCTest
 #endif
 
 final class AgentQueuePaneAdapterTests: XCTestCase {
+    func testCodexReadinessClassificationUsesLiveStateThenShellActivity() {
+        XCTAssertEqual(
+            AgentQueueCodexReadinessClassifier.classify(
+                observedState: .idle,
+                shellActivity: .commandRunning
+            ),
+            .idle
+        )
+        XCTAssertEqual(
+            AgentQueueCodexReadinessClassifier.classify(
+                observedState: .working,
+                shellActivity: .promptIdle
+            ),
+            .busy
+        )
+        XCTAssertEqual(
+            AgentQueueCodexReadinessClassifier.classify(
+                observedState: .needsInput,
+                shellActivity: .promptIdle
+            ),
+            .busy
+        )
+        XCTAssertEqual(
+            AgentQueueCodexReadinessClassifier.classify(
+                observedState: nil,
+                shellActivity: .commandRunning
+            ),
+            .starting
+        )
+        XCTAssertEqual(
+            AgentQueueCodexReadinessClassifier.classify(
+                observedState: nil,
+                shellActivity: .promptIdle
+            ),
+            .absent
+        )
+    }
+
     func testPaneAdapterErrorsExposeSurfaceIDInDescriptions() {
         let surfaceID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
 
