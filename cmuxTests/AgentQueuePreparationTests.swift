@@ -28,12 +28,13 @@ final class AgentQueuePreparationTests: XCTestCase {
             progress: { _ in }
         )
 
-        XCTAssertEqual(driver.submittedTexts.first?.surfaceID, planner)
-        XCTAssertEqual(driver.submittedTexts.first?.text, "codex")
+        XCTAssertEqual(driver.shellCommands.first?.surfaceID, planner)
+        XCTAssertEqual(driver.shellCommands.first?.command, "codex")
         XCTAssertTrue(driver.submittedTexts.contains { item in
             item.surfaceID == planner && item.text ==
                 "$cmux-agent-queue-planner\n\n[AGENT_QUEUE_ROLE_START]\n"
         })
+        XCTAssertFalse(driver.submittedTexts.contains { $0.text == "codex" })
         XCTAssertTrue(driver.sentTexts.isEmpty)
         XCTAssertTrue(driver.enterSurfaceIDs.isEmpty)
     }
@@ -58,7 +59,7 @@ final class AgentQueuePreparationTests: XCTestCase {
             progress: { _ in }
         )
 
-        XCTAssertFalse(driver.submittedTexts.contains { $0.surfaceID == planner && $0.text == "codex" })
+        XCTAssertFalse(driver.shellCommands.contains { $0.surfaceID == planner })
         XCTAssertEqual(
             driver.submittedTexts.filter { $0.surfaceID == planner }.map(\.text),
             ["$cmux-agent-queue-planner\n\n[AGENT_QUEUE_ROLE_START]\n"]
@@ -122,7 +123,11 @@ final class AgentQueuePreparationTests: XCTestCase {
         ])
         XCTAssertEqual(
             driver.submittedTexts.filter { $0.surfaceID == worker }.map(\.text),
-            ["codex", "$cmux-agent-queue-worker\n\n[AGENT_QUEUE_ROLE_START]\n"]
+            ["$cmux-agent-queue-worker\n\n[AGENT_QUEUE_ROLE_START]\n"]
+        )
+        XCTAssertEqual(
+            driver.shellCommands.filter { $0.surfaceID == worker }.map(\.command),
+            ["codex"]
         )
         XCTAssertEqual(
             prepared.workerSlots,
@@ -154,7 +159,11 @@ final class AgentQueuePreparationTests: XCTestCase {
 
         XCTAssertEqual(
             driver.submittedTexts.filter { $0.surfaceID == worker }.map(\.text),
-            ["codex", "$cmux-agent-queue-worker\n\n[AGENT_QUEUE_ROLE_START]\n"]
+            ["$cmux-agent-queue-worker\n\n[AGENT_QUEUE_ROLE_START]\n"]
+        )
+        XCTAssertEqual(
+            driver.shellCommands.filter { $0.surfaceID == worker }.map(\.command),
+            ["codex"]
         )
     }
 
@@ -205,7 +214,6 @@ final class AgentQueuePreparationTests: XCTestCase {
         XCTAssertEqual(
             driver.submittedTexts.filter { $0.surfaceID == firstWorker }.map(\.text),
             [
-                "codex",
                 "$cmux-agent-queue-worker $sample-domain-skill\n\n" +
                     "[AGENT_QUEUE_ROLE_START]\n",
             ]
@@ -213,10 +221,13 @@ final class AgentQueuePreparationTests: XCTestCase {
         XCTAssertEqual(
             driver.submittedTexts.filter { $0.surfaceID == secondWorker }.map(\.text),
             [
-                "codex",
                 "$cmux-agent-queue-worker $careful\n\n" +
                     "[AGENT_QUEUE_ROLE_START]\n",
             ]
+        )
+        XCTAssertEqual(
+            driver.shellCommands.map(\.surfaceID),
+            [firstWorker, secondWorker]
         )
     }
 
@@ -942,6 +953,7 @@ private final class FakeAgentQueueWorkspaceDriver: AgentQueueWorkspaceDriving {
     var readinessSequences: [UUID: [AgentQueueCodexReadiness]] = [:]
     var sentTexts: [(surfaceID: UUID, text: String)] = []
     var submittedTexts: [(surfaceID: UUID, text: String)] = []
+    var shellCommands: [(surfaceID: UUID, command: String)] = []
     var enterSurfaceIDs: [UUID] = []
     var createdSplits: [AgentQueueWorkerSplitRequest] = []
     var closedSurfaceIDs: [UUID] = []
@@ -1011,5 +1023,9 @@ private final class FakeAgentQueueWorkspaceDriver: AgentQueueWorkspaceDriving {
         if sendTextErrorSurfaceIDs.contains(surfaceID) {
             throw AgentQueuePaneAdapterError.surfaceUnavailable(surfaceID)
         }
+    }
+
+    func submitShellCommand(_ command: String, to surfaceID: UUID) async throws {
+        shellCommands.append((surfaceID, command))
     }
 }
