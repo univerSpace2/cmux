@@ -7,6 +7,106 @@ import XCTest
 #endif
 
 final class AgentQueuePreparationTests: XCTestCase {
+    func testPreparationConfigurationDefaultsToOneWorkerAndRejectsOutOfRangeCounts() throws {
+        XCTAssertEqual(AgentQueuePreparationConfiguration.defaultConfiguration.workerCount, 1)
+        XCTAssertNil(AgentQueuePreparationConfiguration.defaultConfiguration.additionalSkill)
+
+        for invalidCount in [0, 5] {
+            XCTAssertThrowsError(
+                try AgentQueuePreparationConfiguration(
+                    workerCount: invalidCount,
+                    additionalSkill: nil
+                )
+            ) { error in
+                XCTAssertEqual(error as? AgentQueuePreparationError, .invalidWorkerCount(invalidCount))
+            }
+        }
+    }
+
+    func testSkillCatalogExcludesMandatoryRoles() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-queue-catalog-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        for name in [
+            "cmux-agent-queue-planner",
+            "cmux-agent-queue-worker",
+            "sample-domain-skill",
+        ] {
+            let directory = root
+                .appendingPathComponent("skills", isDirectory: true)
+                .appendingPathComponent(name, isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try "---\nname: \(name)\ndescription: Use when testing.\n---\n".write(
+                to: directory.appendingPathComponent("SKILL.md"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let options = await AgentQueueSkillCatalog().options(rootDirectory: root.path, query: "")
+
+        XCTAssertTrue(options.contains { $0.name == "sample-domain-skill" })
+        XCTAssertFalse(options.contains { $0.name == "cmux-agent-queue-planner" })
+        XCTAssertFalse(options.contains { $0.name == "cmux-agent-queue-worker" })
+        XCTAssertTrue(options.first { $0.name == "sample-domain-skill" }?.sourcePath.contains(root.path) == true)
+    }
+
+    func testSelectedSkillIsAppliedToEveryWorkerPrompt() throws {
+        let selectedSkill = AgentQueueSkillSelection(
+            name: "sample-domain-skill",
+            sourcePath: "/tmp/skills/sample-domain-skill/SKILL.md"
+        )
+        let configuration = try AgentQueuePreparationConfiguration(
+            workerCount: 3,
+            additionalSkill: selectedSkill
+        )
+
+        let prompts = AgentQueueSkillPromptBuilder.workerPrompts(configuration: configuration)
+
+        XCTAssertEqual(prompts.count, 3)
+        XCTAssertEqual(Set(prompts), ["$cmux-agent-queue-worker $sample-domain-skill"])
+    }
+
+    func testWorkerReconcilerCreatesOnlyDeficitAndClosesStableSurplus() throws {
+        let first = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let second = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let third = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+
+        let increase = try AgentQueueWorkerReconciler.plan(
+            existingWorkerSurfaceIDs: [first],
+            requestedCount: 3,
+            activeWorkerSurfaceIDs: []
+        )
+        XCTAssertEqual(increase.keep, [first])
+        XCTAssertEqual(increase.createCount, 2)
+        XCTAssertEqual(increase.close, [])
+
+        let reduce = try AgentQueueWorkerReconciler.plan(
+            existingWorkerSurfaceIDs: [first, second, third],
+            requestedCount: 2,
+            activeWorkerSurfaceIDs: []
+        )
+        XCTAssertEqual(reduce.keep, [first, second])
+        XCTAssertEqual(reduce.createCount, 0)
+        XCTAssertEqual(reduce.close, [third])
+    }
+
+    func testWorkerReconcilerRejectsClosingActiveWorker() {
+        let first = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let second = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+
+        XCTAssertThrowsError(
+            try AgentQueueWorkerReconciler.plan(
+                existingWorkerSurfaceIDs: [first, second],
+                requestedCount: 1,
+                activeWorkerSurfaceIDs: [second]
+            )
+        ) { error in
+            XCTAssertEqual(error as? AgentQueuePreparationError, .activeWorkerWouldClose(second))
+        }
+    }
+
     func testCanonicalRoleSkillsDeclareNamesAndQueueContracts() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
