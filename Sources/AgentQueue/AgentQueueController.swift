@@ -13,6 +13,7 @@ final class AgentQueueController: ObservableObject {
     private let skillCatalog: AgentQueueSkillCatalog?
     private let skillRootDirectory: String?
     private let pollInterval: Duration
+    private let skillSourceExists: @Sendable (String) -> Bool
     private let sleep: @Sendable (Duration) async throws -> Void
     private let now: () -> Date
     private var nextSequence: Int
@@ -35,6 +36,7 @@ final class AgentQueueController: ObservableObject {
         skillCatalog: AgentQueueSkillCatalog? = nil,
         skillRootDirectory: String? = nil,
         pollInterval: Duration = .seconds(1),
+        skillSourceExists: @escaping @Sendable (String) -> Bool = AgentQueueSkillPath.exists,
         sleep: @escaping @Sendable (Duration) async throws -> Void = { duration in
             try await Task.sleep(for: duration)
         },
@@ -48,15 +50,117 @@ final class AgentQueueController: ObservableObject {
         self.skillCatalog = skillCatalog
         self.skillRootDirectory = skillRootDirectory
         self.pollInterval = pollInterval
+        self.skillSourceExists = skillSourceExists
         self.sleep = sleep
         self.now = now
         nextSequence = initialState.tasks.count + 1
     }
 
     var canStart: Bool {
-        state.preparation?.phase == .ready &&
-            state.tasks.contains(where: { $0.status == .queued }) &&
-            state.workers.contains(where: { $0.enabled && $0.status == .idle })
+        guard !hasActiveWork,
+              state.tasks.contains(where: { $0.status == .queued }),
+              let preparation = state.preparation,
+              preparation.isReady(agentID: AgentQueueAgentID.planner),
+              preparation.record(agentID: AgentQueueAgentID.planner)?.surfaceID ==
+                state.queue.plannerSurfaceID else {
+            return false
+        }
+
+        let activeWorkerIDs = Array(
+            AgentQueueAgentID.workerIDs.prefix(preparation.configuration.workerCount)
+        )
+        let activeWorkers = activeWorkerIDs.compactMap { agentID in
+            state.workers.first(where: { $0.id == agentID })
+        }
+        guard activeWorkers.count == activeWorkerIDs.count,
+              activeWorkers.contains(where: { $0.enabled && $0.status == .idle }) else {
+            return false
+        }
+
+        return activeWorkers.allSatisfy { worker in
+            preparation.isReady(agentID: worker.id) &&
+                preparation.record(agentID: worker.id)?.surfaceID == worker.surfaceID
+        }
+    }
+
+    var hasActiveWork: Bool {
+        state.tasks.contains { task in
+            switch task.status {
+            case .dispatching, .dispatched, .awaitingReport, .retrying:
+                return true
+            case .queued, .completed, .blocked, .failed, .cancelled:
+                return false
+            }
+        }
+    }
+
+    var canEditProfiles: Bool {
+        !hasActiveWork && !isPreparationInProgress
+    }
+
+    func setWorkerCount(_ count: Int) {
+        guard (1...4).contains(count),
+              var preparation = state.preparation,
+              count != preparation.configuration.workerCount,
+              !isPreparationInProgress else {
+            return
+        }
+
+        let previousCount = preparation.configuration.workerCount
+        guard !hasActiveWork || count > previousCount,
+              let configuration = try? preparation.configuration.replacingWorkerCount(count) else {
+            return
+        }
+
+        preparation.configuration = configuration
+        preparation.phase = .notPrepared
+        preparation.errorMessage = nil
+
+        if count > previousCount {
+            for agentID in AgentQueueAgentID.workerIDs[previousCount..<count] {
+                var record = preparation.record(agentID: agentID) ??
+                    AgentQueueAgentPreparationRecord(
+                        agentID: agentID,
+                        surfaceID: state.workers.first(where: { $0.id == agentID })?.surfaceID,
+                        appliedProfileFingerprint: nil,
+                        appliedRoleSkillFingerprint: nil,
+                        phase: .notPrepared,
+                        errorMessage: nil
+                    )
+                record.phase = .notPrepared
+                record.errorMessage = nil
+                preparation = preparation.replacingRecord(record)
+            }
+        }
+
+        let activeWorkerIDs = Set(AgentQueueAgentID.workerIDs.prefix(count))
+        for index in state.workers.indices where !state.workers[index].status.isActiveForPreparation {
+            state.workers[index].enabled = activeWorkerIDs.contains(state.workers[index].id)
+        }
+        state.preparation = preparation
+        pendingRoleSkillChanges = []
+        if !hasActiveWork {
+            state.queue.status = .paused
+        }
+        state.queue.updatedAt = now()
+        persistSoon()
+    }
+
+    func addSkill(_ skill: AgentQueueSkillSelection, to agentID: String) {
+        guard skillSourceExists(skill.sourcePath) else { return }
+        mutateProfile(agentID: agentID) { $0.addingSkill(skill) }
+    }
+
+    func removeSkill(sourcePath: String, from agentID: String) {
+        mutateProfile(agentID: agentID) { $0.removingSkill(sourcePath: sourcePath) }
+    }
+
+    func setRolePrompt(_ rolePrompt: String, for agentID: String) {
+        mutateProfile(agentID: agentID) { profile in
+            var copy = profile
+            copy.rolePrompt = rolePrompt
+            return copy
+        }
     }
 
     func setPreparationConfiguration(_ configuration: AgentQueuePreparationConfiguration) {
@@ -485,6 +589,44 @@ final class AgentQueueController: ObservableObject {
         }
     }
 
+    private func mutateProfile(
+        agentID: String,
+        transform: (AgentQueueAgentProfile) -> AgentQueueAgentProfile
+    ) {
+        guard canEditProfiles,
+              var preparation = state.preparation,
+              let profile = preparation.configuration.profile(id: agentID) else {
+            return
+        }
+
+        let updatedProfile = transform(profile)
+        guard updatedProfile != profile,
+              let configuration = try? preparation.configuration.replacingProfile(updatedProfile) else {
+            return
+        }
+
+        var record = preparation.record(agentID: agentID) ?? AgentQueueAgentPreparationRecord(
+            agentID: agentID,
+            surfaceID: state.workers.first(where: { $0.id == agentID })?.surfaceID,
+            appliedProfileFingerprint: nil,
+            appliedRoleSkillFingerprint: nil,
+            phase: .notPrepared,
+            errorMessage: nil
+        )
+        record.phase = .notPrepared
+        record.errorMessage = nil
+
+        preparation.configuration = configuration
+        preparation.phase = .notPrepared
+        preparation.errorMessage = nil
+        preparation = preparation.replacingRecord(record)
+        state.preparation = preparation
+        pendingRoleSkillChanges = []
+        state.queue.status = .paused
+        state.queue.updatedAt = now()
+        persistSoon()
+    }
+
     private func updatePreparation(
         configuration: AgentQueuePreparationConfiguration,
         phase: AgentQueuePreparationPhase,
@@ -591,13 +733,21 @@ final class AgentQueueController: ObservableObject {
     }
 
     private var hasActiveTasks: Bool {
-        state.tasks.contains { task in
-            switch task.status {
-            case .dispatching, .awaitingReport, .retrying:
-                return true
-            case .queued, .dispatched, .completed, .blocked, .failed, .cancelled:
-                return false
-            }
+        hasActiveWork
+    }
+
+    private var isPreparationInProgress: Bool {
+        guard let phase = state.preparation?.phase else { return false }
+        switch phase {
+        case .checkingSkills,
+             .awaitingSkillConfirmation,
+             .startingPlanner,
+             .startingWorkers,
+             .applyingSkills,
+             .waitingForIdle:
+            return true
+        case .notPrepared, .ready, .failed:
+            return false
         }
     }
 

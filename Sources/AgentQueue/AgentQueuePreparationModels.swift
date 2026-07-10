@@ -239,6 +239,45 @@ struct AgentQueuePreparationState: Codable, Equatable, Sendable {
         self.desiredRoleSkillFingerprints = desiredRoleSkillFingerprints
     }
 
+    func record(agentID: String) -> AgentQueueAgentPreparationRecord? {
+        records.first(where: { $0.agentID == agentID })
+    }
+
+    func replacingRecord(
+        _ record: AgentQueueAgentPreparationRecord
+    ) -> AgentQueuePreparationState {
+        var copy = self
+        if let index = copy.records.firstIndex(where: { $0.agentID == record.agentID }) {
+            copy.records[index] = record
+        } else {
+            copy.records.append(record)
+        }
+        return copy
+    }
+
+    func isReady(agentID: String) -> Bool {
+        guard let profile = configuration.profile(id: agentID),
+              let record = record(agentID: agentID),
+              record.phase == .ready,
+              record.surfaceID != nil,
+              record.appliedProfileFingerprint == AgentQueueProfileFingerprint.make(profile) else {
+            return false
+        }
+
+        let role = agentID == AgentQueueAgentID.planner
+            ? AgentQueueRoleSkill.planner
+            : AgentQueueRoleSkill.worker
+        guard agentID == AgentQueueAgentID.planner || AgentQueueAgentID.workerIDs.contains(agentID),
+              let desiredRoleFingerprint = desiredRoleSkillFingerprints[role.rawValue] else {
+            return false
+        }
+        return record.appliedRoleSkillFingerprint == desiredRoleFingerprint
+    }
+
+    func dirtyAgentIDs() -> [String] {
+        configuration.activeAgentIDs.filter { !isReady(agentID: $0) }
+    }
+
     private enum CodingKeys: String, CodingKey {
         case configuration
         case phase
