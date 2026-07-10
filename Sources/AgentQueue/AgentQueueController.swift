@@ -118,21 +118,24 @@ final class AgentQueueController: ObservableObject {
             guard let workerPreparer else {
                 throw AgentQueuePreparationError.plannerUnavailable
             }
-            let activeWorkerSurfaceIDs = Set(
+            let activeWorkerAgentIDs = Set(
                 state.workers.compactMap { worker in
-                    worker.status.isActiveForPreparation ? worker.surfaceID : nil
+                    worker.status.isActiveForPreparation ? worker.id : nil
                 }
             )
             let prepared = try await workerPreparer.prepare(
                 configuration: configuration,
                 plannerSurfaceID: state.queue.plannerSurfaceID,
-                existingWorkerSurfaceIDs: state.workers.map(\.surfaceID),
-                activeWorkerSurfaceIDs: activeWorkerSurfaceIDs,
-                progress: { [weak self] phase, completedWorkerCount in
+                existingWorkerSlots: state.workers.map {
+                    AgentQueueWorkerSlot(agentID: $0.id, surfaceID: $0.surfaceID)
+                },
+                activeWorkerAgentIDs: activeWorkerAgentIDs,
+                agentIDsToPrepare: Set(configuration.activeAgentIDs),
+                progress: { [weak self] progress in
                     self?.updatePreparation(
                         configuration: configuration,
-                        phase: phase,
-                        completedWorkerCount: completedWorkerCount,
+                        phase: progress.phase,
+                        completedWorkerCount: progress.completedWorkerCount,
                         errorMessage: nil
                     )
                 }
@@ -141,13 +144,22 @@ final class AgentQueueController: ObservableObject {
                 throw AgentQueuePreparationError.plannerUnavailable
             }
 
-            registerPreparedWorkers(prepared.workerSurfaceIDs)
+            registerPreparedWorkers(prepared.workerSlots)
+            let completedWorkerCount = prepared.preparedAgents.filter {
+                $0.agentID != AgentQueueAgentID.planner
+            }.count
+            let preparationFailed = !prepared.failures.isEmpty
             updatePreparation(
                 configuration: configuration,
-                phase: .ready,
-                completedWorkerCount: prepared.workerSurfaceIDs.count,
-                errorMessage: nil
+                phase: preparationFailed ? .failed : .ready,
+                completedWorkerCount: completedWorkerCount,
+                errorMessage: preparationFailed
+                    ? prepared.failures.map(\.message).joined(separator: "\n")
+                    : nil
             )
+            if preparationFailed {
+                state.queue.status = .paused
+            }
             state.queue.updatedAt = now()
             persistSoon()
         } catch {
@@ -487,26 +499,24 @@ final class AgentQueueController: ObservableObject {
         )
     }
 
-    private func registerPreparedWorkers(_ surfaceIDs: [UUID]) {
-        let existingBySurfaceID = Dictionary(
-            uniqueKeysWithValues: state.workers.map { ($0.surfaceID, $0) }
-        )
+    private func registerPreparedWorkers(_ slots: [AgentQueueWorkerSlot]) {
+        let existingByAgentID = Dictionary(uniqueKeysWithValues: state.workers.map { ($0.id, $0) })
         let currentNow = now()
-        state.workers = surfaceIDs.enumerated().map { index, surfaceID in
-            if var existing = existingBySurfaceID[surfaceID] {
-                existing.id = "worker-\(index + 1)"
+        state.workers = slots.map { slot in
+            let index = AgentQueueAgentID.workerIDs.firstIndex(of: slot.agentID) ?? 0
+            if var existing = existingByAgentID[slot.agentID] {
                 existing.workspaceID = state.queue.workspaceID
-                existing.paneID = surfaceID
-                existing.surfaceID = surfaceID
+                existing.paneID = slot.surfaceID
+                existing.surfaceID = slot.surfaceID
                 existing.label = Self.workerLabel(index: index)
                 existing.lastSeenAt = currentNow
                 return existing
             }
             return AgentWorker(
-                id: "worker-\(index + 1)",
+                id: slot.agentID,
                 workspaceID: state.queue.workspaceID,
-                paneID: surfaceID,
-                surfaceID: surfaceID,
+                paneID: slot.surfaceID,
+                surfaceID: slot.surfaceID,
                 label: Self.workerLabel(index: index),
                 enabled: true,
                 status: .idle,

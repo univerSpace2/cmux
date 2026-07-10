@@ -280,32 +280,57 @@ enum AgentQueuePreparationError: Error, Equatable, Sendable {
     case skillInstallationFailed(String)
 }
 
+struct AgentQueueWorkerSlot: Codable, Equatable, Sendable {
+    var agentID: String
+    var surfaceID: UUID
+}
+
 struct AgentQueueWorkerReconciliationPlan: Equatable, Sendable {
-    var keep: [UUID]
-    var createCount: Int
-    var close: [UUID]
+    var keep: [AgentQueueWorkerSlot]
+    var createAgentIDs: [String]
+    var close: [AgentQueueWorkerSlot]
 }
 
 enum AgentQueueWorkerReconciler {
     static func plan(
-        existingWorkerSurfaceIDs: [UUID],
+        existing: [AgentQueueWorkerSlot],
         requestedCount: Int,
-        activeWorkerSurfaceIDs: Set<UUID>
+        activeWorkerAgentIDs: Set<String>
     ) throws -> AgentQueueWorkerReconciliationPlan {
         guard (1...4).contains(requestedCount) else {
             throw AgentQueuePreparationError.invalidWorkerCount(requestedCount)
         }
 
-        let keep = Array(existingWorkerSurfaceIDs.prefix(requestedCount))
-        let close = Array(existingWorkerSurfaceIDs.dropFirst(requestedCount))
-        if let activeSurfaceID = close.first(where: activeWorkerSurfaceIDs.contains) {
-            throw AgentQueuePreparationError.activeWorkerWouldClose(activeSurfaceID)
+        let requestedAgentIDs = Array(AgentQueueAgentID.workerIDs.prefix(requestedCount))
+        var remaining = existing
+        var keep: [AgentQueueWorkerSlot] = []
+        var createAgentIDs: [String] = []
+
+        for agentID in requestedAgentIDs {
+            if let index = remaining.firstIndex(where: { $0.agentID == agentID }) {
+                keep.append(remaining.remove(at: index))
+            } else {
+                createAgentIDs.append(agentID)
+            }
+        }
+
+        let close = remaining.sorted(by: slotOrder)
+        if let activeSlot = close.first(where: { activeWorkerAgentIDs.contains($0.agentID) }) {
+            throw AgentQueuePreparationError.activeWorkerWouldClose(activeSlot.surfaceID)
         }
 
         return AgentQueueWorkerReconciliationPlan(
             keep: keep,
-            createCount: max(0, requestedCount - existingWorkerSurfaceIDs.count),
+            createAgentIDs: createAgentIDs,
             close: close
         )
+    }
+
+    private static func slotOrder(_ lhs: AgentQueueWorkerSlot, _ rhs: AgentQueueWorkerSlot) -> Bool {
+        let lhsIndex = AgentQueueAgentID.workerIDs.firstIndex(of: lhs.agentID) ?? Int.max
+        let rhsIndex = AgentQueueAgentID.workerIDs.firstIndex(of: rhs.agentID) ?? Int.max
+        if lhsIndex != rhsIndex { return lhsIndex < rhsIndex }
+        if lhs.agentID != rhs.agentID { return lhs.agentID < rhs.agentID }
+        return lhs.surfaceID.uuidString < rhs.surfaceID.uuidString
     }
 }

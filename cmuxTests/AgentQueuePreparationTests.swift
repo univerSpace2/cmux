@@ -22,15 +22,17 @@ final class AgentQueuePreparationTests: XCTestCase {
         _ = try await service.prepare(
             configuration: .defaultConfiguration,
             plannerSurfaceID: planner,
-            existingWorkerSurfaceIDs: [],
-            activeWorkerSurfaceIDs: [],
-            progress: { _, _ in }
+            existingWorkerSlots: [],
+            activeWorkerAgentIDs: [],
+            agentIDsToPrepare: ["planner", "worker-1"],
+            progress: { _ in }
         )
 
         XCTAssertEqual(driver.sentTexts.first?.surfaceID, planner)
         XCTAssertEqual(driver.sentTexts.first?.text, "codex")
         XCTAssertTrue(driver.sentTexts.contains { item in
-            item.surfaceID == planner && item.text == "$cmux-agent-queue-planner"
+            item.surfaceID == planner && item.text ==
+                "$cmux-agent-queue-planner\n\n[AGENT_QUEUE_ROLE]\n\n[/AGENT_QUEUE_ROLE]"
         })
     }
 
@@ -48,39 +50,42 @@ final class AgentQueuePreparationTests: XCTestCase {
         _ = try await makePreparationService(driver: driver).prepare(
             configuration: .defaultConfiguration,
             plannerSurfaceID: planner,
-            existingWorkerSurfaceIDs: [],
-            activeWorkerSurfaceIDs: [],
-            progress: { _, _ in }
+            existingWorkerSlots: [],
+            activeWorkerAgentIDs: [],
+            agentIDsToPrepare: ["planner", "worker-1"],
+            progress: { _ in }
         )
 
         XCTAssertFalse(driver.sentTexts.contains { $0.surfaceID == planner && $0.text == "codex" })
         XCTAssertEqual(
             driver.sentTexts.filter { $0.surfaceID == planner }.map(\.text),
-            ["$cmux-agent-queue-planner"]
+            ["$cmux-agent-queue-planner\n\n[AGENT_QUEUE_ROLE]\n\n[/AGENT_QUEUE_ROLE]"]
         )
     }
 
     @MainActor
-    func testBusyPlannerFailsWithoutSendingInputOrCreatingWorkers() async {
+    func testBusyPlannerIsScopedFailureAndWorkerStillPrepares() async throws {
         let planner = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
-        let driver = FakeAgentQueueWorkspaceDriver(plannerSurfaceID: planner)
+        let worker = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
+        let driver = FakeAgentQueueWorkspaceDriver(
+            plannerSurfaceID: planner,
+            createdWorkerSurfaceIDs: [worker]
+        )
         driver.readinessSequences[planner] = [.busy]
+        driver.readinessSequences[worker] = [.starting, .idle, .busy, .idle]
 
-        do {
-            _ = try await makePreparationService(driver: driver).prepare(
-                configuration: .defaultConfiguration,
-                plannerSurfaceID: planner,
-                existingWorkerSurfaceIDs: [],
-                activeWorkerSurfaceIDs: [],
-                progress: { _, _ in }
-            )
-            XCTFail("Expected busy planner to fail")
-        } catch {
-            XCTAssertEqual(error as? AgentQueuePreparationError, .plannerBusy)
-        }
+        let result = try await makePreparationService(driver: driver).prepare(
+            configuration: .defaultConfiguration,
+            plannerSurfaceID: planner,
+            existingWorkerSlots: [],
+            activeWorkerAgentIDs: [],
+            agentIDsToPrepare: ["planner", "worker-1"],
+            progress: { _ in }
+        )
 
-        XCTAssertTrue(driver.sentTexts.isEmpty)
-        XCTAssertTrue(driver.createdSplits.isEmpty)
+        XCTAssertFalse(driver.sentTexts.contains { $0.surfaceID == planner })
+        XCTAssertEqual(result.failures.map(\.agentID), ["planner"])
+        XCTAssertEqual(result.preparedAgents.map(\.agentID), ["worker-1"])
     }
 
     @MainActor
@@ -98,9 +103,10 @@ final class AgentQueuePreparationTests: XCTestCase {
         let prepared = try await makePreparationService(driver: driver).prepare(
             configuration: .defaultConfiguration,
             plannerSurfaceID: planner,
-            existingWorkerSurfaceIDs: [],
-            activeWorkerSurfaceIDs: [],
-            progress: { _, _ in }
+            existingWorkerSlots: [],
+            activeWorkerAgentIDs: [],
+            agentIDsToPrepare: ["planner", "worker-1"],
+            progress: { _ in }
         )
 
         XCTAssertEqual(driver.createdSplits, [
@@ -114,9 +120,12 @@ final class AgentQueuePreparationTests: XCTestCase {
         ])
         XCTAssertEqual(
             driver.sentTexts.filter { $0.surfaceID == worker }.map(\.text),
-            ["codex", "$cmux-agent-queue-worker"]
+            ["codex", "$cmux-agent-queue-worker\n\n[AGENT_QUEUE_ROLE]\n\n[/AGENT_QUEUE_ROLE]"]
         )
-        XCTAssertEqual(prepared.workerSurfaceIDs, [worker])
+        XCTAssertEqual(
+            prepared.workerSlots,
+            [AgentQueueWorkerSlot(agentID: "worker-1", surfaceID: worker)]
+        )
         XCTAssertEqual(prepared.workingDirectory, "/tmp/project")
     }
 
@@ -135,14 +144,15 @@ final class AgentQueuePreparationTests: XCTestCase {
         _ = try await makePreparationService(driver: driver).prepare(
             configuration: .defaultConfiguration,
             plannerSurfaceID: planner,
-            existingWorkerSurfaceIDs: [],
-            activeWorkerSurfaceIDs: [],
-            progress: { _, _ in }
+            existingWorkerSlots: [],
+            activeWorkerAgentIDs: [],
+            agentIDsToPrepare: ["planner", "worker-1"],
+            progress: { _ in }
         )
 
         XCTAssertEqual(
             driver.sentTexts.filter { $0.surfaceID == worker }.map(\.text),
-            ["codex", "$cmux-agent-queue-worker"]
+            ["codex", "$cmux-agent-queue-worker\n\n[AGENT_QUEUE_ROLE]\n\n[/AGENT_QUEUE_ROLE]"]
         )
     }
 
@@ -169,15 +179,20 @@ final class AgentQueuePreparationTests: XCTestCase {
         _ = try await makePreparationService(driver: driver).prepare(
             configuration: configuration,
             plannerSurfaceID: planner,
-            existingWorkerSurfaceIDs: [],
-            activeWorkerSurfaceIDs: [],
-            progress: { _, _ in }
+            existingWorkerSlots: [],
+            activeWorkerAgentIDs: [],
+            agentIDsToPrepare: ["planner", "worker-1", "worker-2"],
+            progress: { _ in }
         )
 
         for worker in [firstWorker, secondWorker] {
             XCTAssertEqual(
                 driver.sentTexts.filter { $0.surfaceID == worker }.map(\.text),
-                ["codex", "$cmux-agent-queue-worker $sample-domain-skill"]
+                [
+                    "codex",
+                    "$cmux-agent-queue-worker $sample-domain-skill\n\n" +
+                        "[AGENT_QUEUE_ROLE]\n\n[/AGENT_QUEUE_ROLE]",
+                ]
             )
         }
     }
@@ -283,9 +298,11 @@ final class AgentQueuePreparationTests: XCTestCase {
     }
 
     @MainActor
-    func testReadinessTimeoutNamesTheSurface() async {
+    func testReadinessTimeoutNamesTheFailedPlanner() async throws {
         let planner = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+        let worker = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
         let driver = FakeAgentQueueWorkspaceDriver(plannerSurfaceID: planner)
+        driver.terminalSurfaceIDs.insert(worker)
         driver.readinessSequences[planner] = [.absent, .starting]
         let service = AgentQueueWorkerPreparationService(
             driver: driver,
@@ -294,18 +311,19 @@ final class AgentQueuePreparationTests: XCTestCase {
             sleep: { _ in }
         )
 
-        do {
-            _ = try await service.prepare(
-                configuration: .defaultConfiguration,
-                plannerSurfaceID: planner,
-                existingWorkerSurfaceIDs: [],
-                activeWorkerSurfaceIDs: [],
-                progress: { _, _ in }
-            )
-            XCTFail("Expected readiness timeout")
-        } catch {
-            XCTAssertEqual(error as? AgentQueuePreparationError, .codexReadinessTimedOut(planner))
-        }
+        let result = try await service.prepare(
+            configuration: .defaultConfiguration,
+            plannerSurfaceID: planner,
+            existingWorkerSlots: [
+                AgentQueueWorkerSlot(agentID: "worker-1", surfaceID: worker),
+            ],
+            activeWorkerAgentIDs: [],
+            agentIDsToPrepare: ["planner"],
+            progress: { _ in }
+        )
+
+        XCTAssertEqual(result.failures.map(\.agentID), ["planner"])
+        XCTAssertEqual(result.failures.map(\.surfaceID), [planner])
     }
 
     @MainActor
@@ -322,14 +340,21 @@ final class AgentQueuePreparationTests: XCTestCase {
         let prepared = try await makePreparationService(driver: driver).prepare(
             configuration: .defaultConfiguration,
             plannerSurfaceID: planner,
-            existingWorkerSurfaceIDs: [keepWorker, closeWorker],
-            activeWorkerSurfaceIDs: [],
-            progress: { _, _ in }
+            existingWorkerSlots: [
+                AgentQueueWorkerSlot(agentID: "worker-1", surfaceID: keepWorker),
+                AgentQueueWorkerSlot(agentID: "worker-2", surfaceID: closeWorker),
+            ],
+            activeWorkerAgentIDs: [],
+            agentIDsToPrepare: ["planner", "worker-1"],
+            progress: { _ in }
         )
 
         XCTAssertEqual(driver.closedSurfaceIDs, [closeWorker])
         XCTAssertFalse(driver.closedSurfaceIDs.contains(unrelated))
-        XCTAssertEqual(prepared.workerSurfaceIDs, [keepWorker])
+        XCTAssertEqual(
+            prepared.workerSlots,
+            [AgentQueueWorkerSlot(agentID: "worker-1", surfaceID: keepWorker)]
+        )
     }
 
     func testPreparationConfigurationDefaultsToOneWorkerAndRejectsOutOfRangeCounts() throws {
@@ -562,22 +587,35 @@ final class AgentQueuePreparationTests: XCTestCase {
         let third = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
 
         let increase = try AgentQueueWorkerReconciler.plan(
-            existingWorkerSurfaceIDs: [first],
+            existing: [AgentQueueWorkerSlot(agentID: "worker-1", surfaceID: first)],
             requestedCount: 3,
-            activeWorkerSurfaceIDs: []
+            activeWorkerAgentIDs: []
         )
-        XCTAssertEqual(increase.keep, [first])
-        XCTAssertEqual(increase.createCount, 2)
+        XCTAssertEqual(
+            increase.keep,
+            [AgentQueueWorkerSlot(agentID: "worker-1", surfaceID: first)]
+        )
+        XCTAssertEqual(increase.createAgentIDs, ["worker-2", "worker-3"])
         XCTAssertEqual(increase.close, [])
 
         let reduce = try AgentQueueWorkerReconciler.plan(
-            existingWorkerSurfaceIDs: [first, second, third],
+            existing: [
+                AgentQueueWorkerSlot(agentID: "worker-1", surfaceID: first),
+                AgentQueueWorkerSlot(agentID: "worker-2", surfaceID: second),
+                AgentQueueWorkerSlot(agentID: "worker-3", surfaceID: third),
+            ],
             requestedCount: 2,
-            activeWorkerSurfaceIDs: []
+            activeWorkerAgentIDs: []
         )
-        XCTAssertEqual(reduce.keep, [first, second])
-        XCTAssertEqual(reduce.createCount, 0)
-        XCTAssertEqual(reduce.close, [third])
+        XCTAssertEqual(reduce.keep, [
+            AgentQueueWorkerSlot(agentID: "worker-1", surfaceID: first),
+            AgentQueueWorkerSlot(agentID: "worker-2", surfaceID: second),
+        ])
+        XCTAssertEqual(reduce.createAgentIDs, [])
+        XCTAssertEqual(
+            reduce.close,
+            [AgentQueueWorkerSlot(agentID: "worker-3", surfaceID: third)]
+        )
     }
 
     func testReconcilerPreservesWorkerTwoWhenWorkerOneSurfaceIsMissing() throws {
@@ -603,9 +641,12 @@ final class AgentQueuePreparationTests: XCTestCase {
 
         XCTAssertThrowsError(
             try AgentQueueWorkerReconciler.plan(
-                existingWorkerSurfaceIDs: [first, second],
+                existing: [
+                    AgentQueueWorkerSlot(agentID: "worker-1", surfaceID: first),
+                    AgentQueueWorkerSlot(agentID: "worker-2", surfaceID: second),
+                ],
                 requestedCount: 1,
-                activeWorkerSurfaceIDs: [second]
+                activeWorkerAgentIDs: ["worker-2"]
             )
         ) { error in
             XCTAssertEqual(error as? AgentQueuePreparationError, .activeWorkerWouldClose(second))

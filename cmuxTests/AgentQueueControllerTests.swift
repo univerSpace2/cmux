@@ -154,8 +154,20 @@ final class AgentQueueControllerTests: XCTestCase {
         let preparer = FakeAgentQueueWorkerPreparer(
             result: AgentQueuePreparedWorkspace(
                 plannerSurfaceID: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
-                workerSurfaceIDs: [firstWorker, secondWorker],
-                workingDirectory: "/tmp/project"
+                workerSlots: [
+                    AgentQueueWorkerSlot(agentID: "worker-1", surfaceID: firstWorker),
+                    AgentQueueWorkerSlot(agentID: "worker-2", surfaceID: secondWorker),
+                ],
+                workingDirectory: "/tmp/project",
+                preparedAgents: [
+                    AgentQueuePreparedAgent(
+                        agentID: "planner",
+                        surfaceID: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+                    ),
+                    AgentQueuePreparedAgent(agentID: "worker-1", surfaceID: firstWorker),
+                    AgentQueuePreparedAgent(agentID: "worker-2", surfaceID: secondWorker),
+                ],
+                failures: []
             )
         )
         let fixture = AgentQueueControllerFixture(
@@ -318,8 +330,24 @@ final class AgentQueueControllerTests: XCTestCase {
         let preparer = FakeAgentQueueWorkerPreparer(
             result: AgentQueuePreparedWorkspace(
                 plannerSurfaceID: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
-                workerSurfaceIDs: [UUID(uuidString: "33333333-3333-3333-3333-333333333333")!],
-                workingDirectory: "/tmp/project"
+                workerSlots: [
+                    AgentQueueWorkerSlot(
+                        agentID: "worker-1",
+                        surfaceID: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+                    ),
+                ],
+                workingDirectory: "/tmp/project",
+                preparedAgents: [
+                    AgentQueuePreparedAgent(
+                        agentID: "planner",
+                        surfaceID: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+                    ),
+                    AgentQueuePreparedAgent(
+                        agentID: "worker-1",
+                        surfaceID: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+                    ),
+                ],
+                failures: []
             )
         )
         let fixture = AgentQueueControllerFixture(preparer: preparer)
@@ -329,7 +357,7 @@ final class AgentQueueControllerTests: XCTestCase {
 
         await fixture.controller.prepareWorkers(allowSkillChanges: true)
 
-        XCTAssertEqual(preparer.lastActiveWorkerSurfaceIDs, [fixture.workerSurfaceID])
+        XCTAssertEqual(preparer.lastActiveWorkerAgentIDs, ["worker-1"])
         XCTAssertEqual(fixture.controller.state.tasks.first?.status, .awaitingReport)
         XCTAssertEqual(fixture.controller.state.workers.first?.status, .awaitingReport)
     }
@@ -476,7 +504,8 @@ private actor FakeAgentQueueRoleSkillInstaller: AgentQueueRoleSkillInstalling {
 private final class FakeAgentQueueWorkerPreparer: AgentQueueWorkerPreparing {
     var result: AgentQueuePreparedWorkspace
     var prepareCallCount = 0
-    var lastActiveWorkerSurfaceIDs: Set<UUID> = []
+    var lastActiveWorkerAgentIDs: Set<String> = []
+    var lastAgentIDsToPrepare: Set<String> = []
 
     init(result: AgentQueuePreparedWorkspace) {
         self.result = result
@@ -485,14 +514,28 @@ private final class FakeAgentQueueWorkerPreparer: AgentQueueWorkerPreparing {
     func prepare(
         configuration: AgentQueuePreparationConfiguration,
         plannerSurfaceID: UUID,
-        existingWorkerSurfaceIDs: [UUID],
-        activeWorkerSurfaceIDs: Set<UUID>,
-        progress: @escaping @MainActor (AgentQueuePreparationPhase, Int) -> Void
+        existingWorkerSlots: [AgentQueueWorkerSlot],
+        activeWorkerAgentIDs: Set<String>,
+        agentIDsToPrepare: Set<String>,
+        progress: @escaping @MainActor (AgentQueuePreparationProgress) -> Void
     ) async throws -> AgentQueuePreparedWorkspace {
         prepareCallCount += 1
-        lastActiveWorkerSurfaceIDs = activeWorkerSurfaceIDs
-        progress(.startingWorkers, 0)
-        progress(.waitingForIdle, result.workerSurfaceIDs.count)
+        lastActiveWorkerAgentIDs = activeWorkerAgentIDs
+        lastAgentIDsToPrepare = agentIDsToPrepare
+        progress(
+            AgentQueuePreparationProgress(
+                agentID: nil,
+                phase: .startingWorkers,
+                completedWorkerCount: 0
+            )
+        )
+        progress(
+            AgentQueuePreparationProgress(
+                agentID: nil,
+                phase: .waitingForIdle,
+                completedWorkerCount: result.workerSlots.count
+            )
+        )
         return result
     }
 }
