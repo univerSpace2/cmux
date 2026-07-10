@@ -46,7 +46,8 @@ final class AgentQueuePreparationTests: XCTestCase {
         XCTAssertEqual(installs.map(\.kind), [.install, .install])
 
         try await installer.apply(installs)
-        XCTAssertEqual(try await installer.pendingChanges(), [])
+        let noChanges = try await installer.pendingChanges()
+        XCTAssertEqual(noChanges, [])
         XCTAssertEqual(
             try String(contentsOf: roleSkillURL(.worker, root: destinationRoot), encoding: .utf8),
             "worker-v1"
