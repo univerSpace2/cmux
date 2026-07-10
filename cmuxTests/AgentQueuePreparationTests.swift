@@ -183,6 +183,106 @@ final class AgentQueuePreparationTests: XCTestCase {
     }
 
     @MainActor
+    func testScopedPreparationAppliesOnlyWorkerTwoProfile() async throws {
+        let planner = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+        let firstWorker = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
+        let secondWorker = UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
+        let driver = FakeAgentQueueWorkspaceDriver(plannerSurfaceID: planner)
+        driver.terminalSurfaceIDs.formUnion([firstWorker, secondWorker])
+        driver.readinessSequences[secondWorker] = [.idle, .busy, .idle]
+
+        var workerTwoProfile = AgentQueueAgentProfile.worker(index: 1)
+        workerTwoProfile = workerTwoProfile.addingSkill(
+            AgentQueueSkillSelection(
+                name: "api-integration",
+                sourcePath: "/tmp/api-integration/SKILL.md"
+            )
+        )
+        workerTwoProfile.rolePrompt = "Own API integration."
+        let configuration = try AgentQueuePreparationConfiguration(
+            workerCount: 2,
+            plannerProfile: .planner,
+            workerProfiles: AgentQueueAgentProfile.defaultWorkers
+        ).replacingProfile(workerTwoProfile)
+
+        let prepared = try await makePreparationService(driver: driver).prepare(
+            configuration: configuration,
+            plannerSurfaceID: planner,
+            existingWorkerSlots: [
+                AgentQueueWorkerSlot(agentID: "worker-1", surfaceID: firstWorker),
+                AgentQueueWorkerSlot(agentID: "worker-2", surfaceID: secondWorker),
+            ],
+            activeWorkerAgentIDs: [],
+            agentIDsToPrepare: ["worker-2"],
+            progress: { _ in }
+        )
+
+        XCTAssertFalse(driver.sentTexts.contains { $0.surfaceID == planner })
+        XCTAssertFalse(driver.sentTexts.contains { $0.surfaceID == firstWorker })
+        XCTAssertEqual(
+            driver.sentTexts.filter { $0.surfaceID == secondWorker }.map(\.text),
+            [
+                "$cmux-agent-queue-worker $api-integration\n\n" +
+                    "[AGENT_QUEUE_ROLE]\nOwn API integration.\n[/AGENT_QUEUE_ROLE]",
+            ]
+        )
+        XCTAssertEqual(
+            prepared.preparedAgents,
+            [AgentQueuePreparedAgent(agentID: "worker-2", surfaceID: secondWorker)]
+        )
+        XCTAssertTrue(prepared.failures.isEmpty)
+    }
+
+    @MainActor
+    func testPreparationContinuesAfterScopedWorkerFailure() async throws {
+        let planner = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+        let firstWorker = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
+        let secondWorker = UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
+        let driver = FakeAgentQueueWorkspaceDriver(plannerSurfaceID: planner)
+        driver.terminalSurfaceIDs.formUnion([firstWorker, secondWorker])
+        driver.readinessSequences[firstWorker] = [.idle]
+        driver.readinessSequences[secondWorker] = [.idle, .busy, .idle]
+        driver.sendTextErrorSurfaceIDs.insert(firstWorker)
+
+        var firstProfile = AgentQueueAgentProfile.worker(index: 0)
+        firstProfile = firstProfile.addingSkill(
+            AgentQueueSkillSelection(name: "careful", sourcePath: "/tmp/careful/SKILL.md")
+        )
+        var secondProfile = AgentQueueAgentProfile.worker(index: 1)
+        secondProfile = secondProfile.addingSkill(
+            AgentQueueSkillSelection(name: "api-integration", sourcePath: "/tmp/api/SKILL.md")
+        )
+        let base = try AgentQueuePreparationConfiguration(
+            workerCount: 2,
+            plannerProfile: .planner,
+            workerProfiles: AgentQueueAgentProfile.defaultWorkers
+        )
+        let configuration = try base.replacingProfile(firstProfile).replacingProfile(secondProfile)
+
+        let prepared = try await makePreparationService(driver: driver).prepare(
+            configuration: configuration,
+            plannerSurfaceID: planner,
+            existingWorkerSlots: [
+                AgentQueueWorkerSlot(agentID: "worker-1", surfaceID: firstWorker),
+                AgentQueueWorkerSlot(agentID: "worker-2", surfaceID: secondWorker),
+            ],
+            activeWorkerAgentIDs: [],
+            agentIDsToPrepare: ["worker-1", "worker-2"],
+            progress: { _ in }
+        )
+
+        XCTAssertEqual(
+            prepared.preparedAgents,
+            [AgentQueuePreparedAgent(agentID: "worker-2", surfaceID: secondWorker)]
+        )
+        XCTAssertEqual(prepared.failures.map(\.agentID), ["worker-1"])
+        XCTAssertEqual(prepared.failures.map(\.surfaceID), [firstWorker])
+        XCTAssertTrue(driver.sentTexts.contains { item in
+            item.surfaceID == secondWorker && item.text.contains("$api-integration")
+        })
+    }
+
+    @MainActor
     func testReadinessTimeoutNamesTheSurface() async {
         let planner = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
         let driver = FakeAgentQueueWorkspaceDriver(plannerSurfaceID: planner)
@@ -480,6 +580,23 @@ final class AgentQueuePreparationTests: XCTestCase {
         XCTAssertEqual(reduce.close, [third])
     }
 
+    func testReconcilerPreservesWorkerTwoWhenWorkerOneSurfaceIsMissing() throws {
+        let workerTwoSurface = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let plan = try AgentQueueWorkerReconciler.plan(
+            existing: [
+                AgentQueueWorkerSlot(agentID: "worker-2", surfaceID: workerTwoSurface),
+            ],
+            requestedCount: 2,
+            activeWorkerAgentIDs: []
+        )
+
+        XCTAssertEqual(plan.keep, [
+            AgentQueueWorkerSlot(agentID: "worker-2", surfaceID: workerTwoSurface),
+        ])
+        XCTAssertEqual(plan.createAgentIDs, ["worker-1"])
+        XCTAssertTrue(plan.close.isEmpty)
+    }
+
     func testWorkerReconcilerRejectsClosingActiveWorker() {
         let first = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let second = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
@@ -609,6 +726,7 @@ private final class FakeAgentQueueWorkspaceDriver: AgentQueueWorkspaceDriving {
     var enterSurfaceIDs: [UUID] = []
     var createdSplits: [AgentQueueWorkerSplitRequest] = []
     var closedSurfaceIDs: [UUID] = []
+    var sendTextErrorSurfaceIDs: Set<UUID> = []
     var createdWorkerSurfaceIDs: [UUID]
     var createdWorkerShellActivity: AgentQueueShellActivity = .promptIdle
     let workingDirectory: String
@@ -660,6 +778,9 @@ private final class FakeAgentQueueWorkspaceDriver: AgentQueueWorkspaceDriving {
 
     func sendText(_ text: String, to surfaceID: UUID) async throws {
         sentTexts.append((surfaceID, text))
+        if sendTextErrorSurfaceIDs.contains(surfaceID) {
+            throw AgentQueuePaneAdapterError.surfaceUnavailable(surfaceID)
+        }
     }
 
     func sendEnter(to surfaceID: UUID) async throws {
