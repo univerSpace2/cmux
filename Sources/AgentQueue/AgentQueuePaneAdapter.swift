@@ -24,7 +24,8 @@ enum AgentQueueCodexReadinessClassifier {
     static func classify(
         observedState: AgentQueueObservedCodexState?,
         shellActivity: AgentQueueShellActivity,
-        visibleText: String = ""
+        visibleText: String = "",
+        visibleReadyFallbackAllowed: Bool = true
     ) -> AgentQueueCodexReadiness {
         switch observedState {
         case .idle:
@@ -32,7 +33,8 @@ enum AgentQueueCodexReadinessClassifier {
         case .working, .needsInput:
             return .busy
         case nil:
-            if shellActivity == .commandRunning,
+            if visibleReadyFallbackAllowed,
+               shellActivity == .commandRunning,
                visibleText.contains("OpenAI Codex"),
                visibleText.split(whereSeparator: \Character.isNewline).contains(where: { line in
                    line.contains("· Ready ·")
@@ -88,6 +90,7 @@ enum AgentQueuePaneAdapterError: LocalizedError, Equatable {
 @MainActor
 final class AppAgentQueuePaneAdapter: AgentQueuePaneAdapting {
     private weak var tabManager: TabManager?
+    private var visibleReadyFallbackBlockedSurfaceIDs: Set<UUID> = []
 
     init(tabManager: TabManager) {
         self.tabManager = tabManager
@@ -98,15 +101,21 @@ final class AppAgentQueuePaneAdapter: AgentQueuePaneAdapting {
             throw AgentQueuePaneAdapterError.surfaceNotTerminal(surfaceID)
         }
 
+        let result: AgentQueueSendResult
         switch terminalPanel.sendInputResult(text) {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: "agentQueue.sendText")
-            return AgentQueueSendResult(surfaceID: surfaceID, queued: false)
+            result = AgentQueueSendResult(surfaceID: surfaceID, queued: false)
         case .queued:
-            return AgentQueueSendResult(surfaceID: surfaceID, queued: true)
+            result = AgentQueueSendResult(surfaceID: surfaceID, queued: true)
         case .inputQueueFull, .surfaceUnavailable, .processExited:
             throw AgentQueuePaneAdapterError.surfaceUnavailable(surfaceID)
         }
+
+        if text.trimmingCharacters(in: .whitespacesAndNewlines) != "codex" {
+            visibleReadyFallbackBlockedSurfaceIDs.insert(surfaceID)
+        }
+        return result
     }
 
     func sendEnter(to surfaceID: UUID) async throws -> AgentQueueSendResult {
@@ -163,6 +172,7 @@ final class AppAgentQueuePaneAdapter: AgentQueuePaneAdapting {
                     record.state != .ended &&
                     record.surfaceID.flatMap(UUID.init(uuidString:)) == surfaceID
             }) {
+                visibleReadyFallbackBlockedSurfaceIDs.remove(surfaceID)
                 let observedState: AgentQueueObservedCodexState
                 switch record.state {
                 case .idle:
@@ -189,7 +199,8 @@ final class AppAgentQueuePaneAdapter: AgentQueuePaneAdapting {
         return AgentQueueCodexReadinessClassifier.classify(
             observedState: nil,
             shellActivity: shellActivity,
-            visibleText: visibleText
+            visibleText: visibleText,
+            visibleReadyFallbackAllowed: !visibleReadyFallbackBlockedSurfaceIDs.contains(surfaceID)
         )
     }
 
