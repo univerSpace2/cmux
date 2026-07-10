@@ -113,4 +113,28 @@ final class AgentQueueModelsTests: XCTestCase {
 
         XCTAssertNil(decoded.preparation)
     }
+
+    func testLegacyAdditionalSkillMigratesToEveryWorkerOnly() throws {
+        struct LegacyConfiguration: Encodable {
+            var workerCount: Int
+            var additionalSkill: AgentQueueSkillSelection?
+        }
+        let skill = AgentQueueSkillSelection(
+            name: "api-integration",
+            sourcePath: "/tmp/skills/api-integration/SKILL.md"
+        )
+        let data = try JSONEncoder.agentQueue.encode(
+            LegacyConfiguration(workerCount: 2, additionalSkill: skill)
+        )
+
+        let decoded = try JSONDecoder.agentQueue.decode(
+            AgentQueuePreparationConfiguration.self,
+            from: data
+        )
+
+        XCTAssertEqual(decoded.workerCount, 2)
+        XCTAssertTrue(decoded.workerProfiles.allSatisfy { $0.additionalSkills == [skill] })
+        XCTAssertTrue(decoded.plannerProfile.additionalSkills.isEmpty)
+        XCTAssertTrue(decoded.workerProfiles.allSatisfy { $0.rolePrompt.isEmpty })
+    }
 }

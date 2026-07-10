@@ -248,6 +248,60 @@ final class AgentQueuePreparationTests: XCTestCase {
         }
     }
 
+    func testConfigurationOwnsPlannerAndFourStableWorkerProfiles() {
+        let configuration = AgentQueuePreparationConfiguration.defaultConfiguration
+
+        XCTAssertEqual(configuration.workerCount, 1)
+        XCTAssertEqual(configuration.plannerProfile.id, "planner")
+        XCTAssertEqual(
+            configuration.workerProfiles.map(\.id),
+            ["worker-1", "worker-2", "worker-3", "worker-4"]
+        )
+        XCTAssertEqual(configuration.activeAgentIDs, ["planner", "worker-1"])
+    }
+
+    func testReducingAndIncreasingWorkerCountPreservesHiddenProfile() throws {
+        let skill = AgentQueueSkillSelection(
+            name: "api-integration",
+            sourcePath: "/tmp/skills/api-integration/SKILL.md"
+        )
+        var workerTwo = AgentQueueAgentProfile.worker(index: 1)
+        workerTwo = workerTwo.addingSkill(skill)
+        workerTwo.rolePrompt = "Own API integration and verification."
+        var configuration = try AgentQueuePreparationConfiguration(
+            workerCount: 2,
+            plannerProfile: .planner,
+            workerProfiles: AgentQueueAgentProfile.defaultWorkers
+        ).replacingProfile(workerTwo)
+
+        configuration = try configuration.replacingWorkerCount(1)
+        configuration = try configuration.replacingWorkerCount(2)
+
+        XCTAssertEqual(configuration.profile(id: "worker-2"), workerTwo)
+    }
+
+    func testProfileDeduplicatesStandardizedSkillPathsAndKeepsInsertionOrder() {
+        let first = AgentQueueSkillSelection(
+            name: "api-integration",
+            sourcePath: "/tmp/skills/api-integration/SKILL.md"
+        )
+        let duplicate = AgentQueueSkillSelection(
+            name: "api-integration-copy",
+            sourcePath: "/tmp/skills/../skills/api-integration/SKILL.md"
+        )
+        let second = AgentQueueSkillSelection(
+            name: "careful",
+            sourcePath: "/tmp/skills/careful/SKILL.md"
+        )
+
+        let profile = AgentQueueAgentProfile.worker(index: 0)
+            .addingSkill(first)
+            .addingSkill(duplicate)
+            .addingSkill(second)
+
+        XCTAssertEqual(profile.additionalSkills, [first, second])
+    }
+
     func testPreparationSnapshotDefaultsToOneWorkerWithNoAdditionalSkillAndDisabledStart() {
         let snapshot = AgentQueuePreparationSnapshot(preparation: nil, canStart: false)
 

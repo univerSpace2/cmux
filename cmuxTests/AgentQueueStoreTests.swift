@@ -26,6 +26,48 @@ final class AgentQueueStoreTests: XCTestCase {
 
         XCTAssertEqual(pruned.events.map(\.message), ["event-4", "event-5"])
     }
+
+    func testStoreRoundTripsHiddenProfilesAndAppliedRecords() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = AgentQueueStore(rootDirectory: directory)
+        var state = AgentQueueStoreFixture.state(eventCount: 0)
+        var workerFour = AgentQueueAgentProfile.worker(index: 3)
+        workerFour.rolePrompt = "Preserve this hidden specialist role."
+        let configuration = try AgentQueuePreparationConfiguration.defaultConfiguration
+            .replacingProfile(workerFour)
+        state.preparation = AgentQueuePreparationState(
+            configuration: configuration,
+            phase: .ready,
+            completedWorkerCount: 1,
+            errorMessage: nil,
+            records: [
+                AgentQueueAgentPreparationRecord(
+                    agentID: "planner",
+                    surfaceID: state.queue.plannerSurfaceID,
+                    appliedProfileFingerprint: "planner-profile-v1",
+                    appliedRoleSkillFingerprint: "planner-role-v1",
+                    phase: .ready,
+                    errorMessage: nil
+                ),
+            ],
+            desiredRoleSkillFingerprints: [
+                "cmux-agent-queue-planner": "planner-role-v1",
+                "cmux-agent-queue-worker": "worker-role-v1",
+            ]
+        )
+
+        try await store.save(state)
+        let loaded = try await store.load(workspaceID: state.queue.workspaceID)
+
+        XCTAssertEqual(loaded, state)
+        XCTAssertEqual(
+            loaded?.preparation?.configuration.profile(id: "worker-4")?.rolePrompt,
+            "Preserve this hidden specialist role."
+        )
+        XCTAssertEqual(loaded?.preparation?.records.first?.phase, .ready)
+    }
 }
 
 private enum AgentQueueStoreFixture {
