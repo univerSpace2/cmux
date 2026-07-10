@@ -109,7 +109,7 @@ final class AgentQueueWorkerPreparationService: AgentQueueWorkerPreparing {
                 direction: .right,
                 focus: false,
                 workingDirectory: workingDirectory,
-                initialCommand: "codex"
+                initialCommand: ""
             )
             guard let surfaceID = driver.createWorkerSplit(request) else {
                 throw AgentQueuePreparationError.plannerUnavailable
@@ -121,7 +121,7 @@ final class AgentQueueWorkerPreparationService: AgentQueueWorkerPreparing {
         for surfaceID in workerSurfaceIDs {
             try await prepareWorker(
                 surfaceID: surfaceID,
-                expectsInitialCommand: newlyCreatedSurfaceIDs.contains(surfaceID)
+                launchCodexAfterShellReady: newlyCreatedSurfaceIDs.contains(surfaceID)
             )
         }
 
@@ -160,11 +160,13 @@ final class AgentQueueWorkerPreparationService: AgentQueueWorkerPreparing {
         }
     }
 
-    private func prepareWorker(surfaceID: UUID, expectsInitialCommand: Bool) async throws {
+    private func prepareWorker(surfaceID: UUID, launchCodexAfterShellReady: Bool) async throws {
         guard driver.isTerminalSurface(surfaceID) else {
             throw AgentQueuePaneAdapterError.surfaceNotTerminal(surfaceID)
         }
-        if expectsInitialCommand {
+        if launchCodexAfterShellReady {
+            try await waitForShellPrompt(surfaceID: surfaceID)
+            try await submit("codex", to: surfaceID)
             try await waitForIdle(surfaceID: surfaceID)
             return
         }
@@ -181,6 +183,23 @@ final class AgentQueueWorkerPreparationService: AgentQueueWorkerPreparing {
             try await submit("codex", to: surfaceID)
             try await waitForIdle(surfaceID: surfaceID)
         }
+    }
+
+    private func waitForShellPrompt(surfaceID: UUID) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: readinessTimeout)
+
+        while clock.now <= deadline {
+            guard driver.isTerminalSurface(surfaceID) else {
+                throw AgentQueuePaneAdapterError.surfaceUnavailable(surfaceID)
+            }
+            if driver.shellActivity(surfaceID: surfaceID) == .promptIdle {
+                return
+            }
+            guard clock.now < deadline else { break }
+            try await sleep(pollInterval)
+        }
+        throw AgentQueuePreparationError.codexReadinessTimedOut(surfaceID)
     }
 
     private func submit(_ text: String, to surfaceID: UUID) async throws {
