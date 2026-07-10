@@ -44,15 +44,25 @@ final class AgentQueueReportDetectorTests: XCTestCase {
 
     func testIgnoresReportWithoutTaskID() {
         let planner = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let text = "완료 보고: done without id"
 
         let reports = AgentQueueReportDetector.detect(
-            in: "완료 보고: task id 없음",
+            in: text,
             surfaceID: planner,
             plannerSurfaceID: planner,
             knownTaskIDs: ["T-20260709-0004"]
         )
+        let malformedLines = AgentQueueReportDetector.detectMalformedCompletionLines(in: text)
 
         XCTAssertTrue(reports.isEmpty)
+        XCTAssertEqual(malformedLines, [text])
+    }
+
+    func testReturnsEachMalformedCompletionLineOnlyOnce() {
+        let line = "완료 보고: done without id"
+        let text = "\(line)\nnoise\n\(line)"
+
+        XCTAssertEqual(AgentQueueReportDetector.detectMalformedCompletionLines(in: text), [line])
     }
 
     func testClassifiesUnknownTaskIDAsUnmatched() {

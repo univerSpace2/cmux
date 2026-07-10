@@ -37,6 +37,68 @@ final class AgentQueueControllerTests: XCTestCase {
         XCTAssertEqual(controller.state.tasks.first?.status, .completed)
     }
 
+    func testDuplicateWorkerReportIsForwardedAndLoggedOnce() async {
+        let fixture = AgentQueueControllerFixture()
+        let controller = fixture.controller
+
+        controller.createTasks(from: "Inspect repo")
+        await controller.start()
+        fixture.adapter.textBySurface[fixture.workerSurfaceID] =
+            "완료 보고 [T-20260709-0001]: done in worker pane"
+
+        await controller.pollReportsOnce(now: fixture.now.addingTimeInterval(60))
+        await controller.pollReportsOnce(now: fixture.now.addingTimeInterval(61))
+
+        XCTAssertEqual(
+            fixture.adapter.sentTexts.filter { $0.surfaceID == fixture.plannerSurfaceID }.count,
+            1
+        )
+        XCTAssertEqual(
+            controller.state.events.filter { $0.type == .wrongPaneReportDetected }.count,
+            1
+        )
+        XCTAssertEqual(controller.state.tasks.first?.status, .completed)
+    }
+
+    func testMonitoringPollsWithoutSidebarCallbacks() async {
+        let fixture = AgentQueueControllerFixture(pollInterval: .milliseconds(10))
+        let controller = fixture.controller
+
+        controller.createTasks(from: "Inspect repo")
+        await controller.start()
+        fixture.adapter.textBySurface[fixture.workerSurfaceID] =
+            "완료 보고 [T-20260709-0001]: done in worker pane"
+
+        controller.startMonitoring()
+        for _ in 0..<50 {
+            if controller.state.tasks.first?.status == .completed { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        controller.stopMonitoring()
+
+        XCTAssertEqual(controller.state.tasks.first?.status, .completed)
+        XCTAssertGreaterThan(fixture.adapter.readCount, 0)
+    }
+
+    func testMalformedAndUnknownReportsAreLoggedAsIgnored() async {
+        let fixture = AgentQueueControllerFixture()
+        let controller = fixture.controller
+
+        controller.createTasks(from: "Inspect repo")
+        await controller.start()
+        fixture.adapter.textBySurface[fixture.workerSurfaceID] = """
+        완료 보고: done without id
+        완료 보고 [T-20260709-9999]: unknown task
+        """
+
+        await controller.pollReportsOnce(now: fixture.now.addingTimeInterval(60))
+
+        let ignoredEvents = controller.state.events.filter { $0.type == .ignoredReport }
+        XCTAssertEqual(ignoredEvents.count, 2)
+        XCTAssertEqual(Set(ignoredEvents.compactMap(\.evidence?.command)), ["missing_task_id", "unknown_task_id"])
+        XCTAssertEqual(controller.state.tasks.first?.status, .awaitingReport)
+    }
+
     func testEnterFailureDoesNotMarkTaskAwaitingReport() async {
         let fixture = AgentQueueControllerFixture()
         fixture.adapter.enterError = AgentQueuePaneAdapterError.surfaceUnavailable(fixture.workerSurfaceID)
@@ -66,7 +128,7 @@ private final class AgentQueueControllerFixture {
     let adapter = FakeAgentQueuePaneAdapter()
     let controller: AgentQueueController
 
-    init() {
+    init(pollInterval: Duration = .seconds(1)) {
         let queue = AgentQueue(
             id: "queue-1",
             workspaceID: workspaceID,
@@ -91,6 +153,7 @@ private final class AgentQueueControllerFixture {
             initialState: AgentQueueState(queue: queue, tasks: [], workers: [worker], events: []),
             paneAdapter: adapter,
             store: nil,
+            pollInterval: pollInterval,
             now: { fixedNow }
         )
     }
@@ -101,6 +164,7 @@ private final class FakeAgentQueuePaneAdapter: AgentQueuePaneAdapting, @unchecke
     var enterSurfaces: [UUID] = []
     var textBySurface: [UUID: String] = [:]
     var enterError: Error?
+    var readCount = 0
 
     func sendText(_ text: String, to surfaceID: UUID) async throws -> AgentQueueSendResult {
         sentTexts.append((surfaceID, text))
@@ -116,6 +180,7 @@ private final class FakeAgentQueuePaneAdapter: AgentQueuePaneAdapting, @unchecke
     }
 
     func readText(surfaceID: UUID, lines: Int) async throws -> AgentQueueSurfaceTextSnapshot {
+        readCount += 1
         AgentQueueSurfaceTextSnapshot(
             surfaceID: surfaceID,
             text: textBySurface[surfaceID] ?? "",

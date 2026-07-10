@@ -111,7 +111,6 @@ final class AgentQueueCoreTests: XCTestCase {
         XCTAssertEqual(result.state.tasks[0].status, .completed)
         XCTAssertEqual(result.effects, [
             .forwardReport(taskID: "T-20260709-0001", fromSurfaceID: fixture.state.workers[0].surfaceID, excerpt: "완료 보고 [T-20260709-0001]: done in wrong pane"),
-            .sendCorrection(taskID: "T-20260709-0001", workerID: "worker-1"),
         ])
     }
 
