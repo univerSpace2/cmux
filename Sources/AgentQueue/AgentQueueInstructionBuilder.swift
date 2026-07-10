@@ -57,7 +57,7 @@ enum AgentQueueInstructionBuilder {
         설명이나 Markdown 코드 펜스 없이 다음 형식만 출력하세요.
         [AGENT_QUEUE_TASKS]
         {"request_id":"\(id)","tasks":[{"title":"작업 제목","body":"구체적인 작업 지시"}]}
-        [/AGENT_QUEUE_TASKS]
+        마지막 줄은 같은 이름 앞에 /를 붙인 종료 표식으로 닫으세요.
         """
         return plannerInstruction(instruction, profile: profile)
     }
