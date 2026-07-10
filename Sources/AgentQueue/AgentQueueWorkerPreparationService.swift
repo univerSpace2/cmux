@@ -46,8 +46,7 @@ protocol AgentQueueWorkspaceDriving: AnyObject {
     func createWorkerSplit(_ request: AgentQueueWorkerSplitRequest) -> UUID?
     func closeWorkerSurface(_ surfaceID: UUID) -> Bool
     func codexReadiness(surfaceID: UUID) async -> AgentQueueCodexReadiness
-    func sendText(_ text: String, to surfaceID: UUID) async throws
-    func sendEnter(to surfaceID: UUID) async throws
+    func submitText(_ text: String, to surfaceID: UUID) async throws
 }
 
 @MainActor
@@ -290,8 +289,7 @@ final class AgentQueueWorkerPreparationService: AgentQueueWorkerPreparing {
     }
 
     private func submit(_ text: String, to surfaceID: UUID) async throws {
-        try await driver.sendText(text, to: surfaceID)
-        try await driver.sendEnter(to: surfaceID)
+        try await driver.submitText(text, to: surfaceID)
     }
 
     private func waitForIdle(surfaceID: UUID) async throws {
@@ -363,11 +361,7 @@ final class AppAgentQueueWorkspaceDriver: AgentQueueWorkspaceDriving {
         await paneAdapter.codexReadiness(surfaceID: surfaceID)
     }
 
-    func sendText(_ text: String, to surfaceID: UUID) async throws {
-        _ = try await paneAdapter.sendText(text, to: surfaceID)
-    }
-
-    func sendEnter(to surfaceID: UUID) async throws {
-        _ = try await paneAdapter.sendEnter(to: surfaceID)
+    func submitText(_ text: String, to surfaceID: UUID) async throws {
+        _ = try await paneAdapter.submitText(text, to: surfaceID)
     }
 }

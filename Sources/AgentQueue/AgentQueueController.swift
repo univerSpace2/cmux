@@ -659,8 +659,7 @@ final class AgentQueueController: ObservableObject {
                     instruction,
                     profile: plannerProfile
                 )
-                _ = try? await paneAdapter.sendText(text, to: state.queue.plannerSurfaceID)
-                _ = try? await paneAdapter.sendEnter(to: state.queue.plannerSurfaceID)
+                _ = try? await paneAdapter.submitText(text, to: state.queue.plannerSurfaceID)
 
             case let .sendRecovery(taskID, workerID):
                 guard let task = state.tasks.first(where: { $0.id == taskID }),
@@ -673,8 +672,7 @@ final class AgentQueueController: ObservableObject {
                     task: task,
                     profile: profile
                 )
-                _ = try? await paneAdapter.sendText(text, to: worker.surfaceID)
-                _ = try? await paneAdapter.sendEnter(to: worker.surfaceID)
+                _ = try? await paneAdapter.submitText(text, to: worker.surfaceID)
                 await apply(.recoverySent(taskID: taskID))
 
             case .persist:
@@ -699,16 +697,13 @@ final class AgentQueueController: ObservableObject {
                 profile: profile
             )
         )
-        var didSendText = false
         do {
-            let textResult = try await paneAdapter.sendText(text, to: worker.surfaceID)
-            didSendText = true
-            let enterResult = try await paneAdapter.sendEnter(to: worker.surfaceID)
+            let result = try await paneAdapter.submitText(text, to: worker.surfaceID)
             await apply(
                 .dispatchSubmitted(
                     taskID: taskID,
                     workerID: workerID,
-                    queued: textResult.queued || enterResult.queued
+                    queued: result.queued
                 )
             )
         } catch {
@@ -716,7 +711,7 @@ final class AgentQueueController: ObservableObject {
                 .dispatchSubmissionFailed(
                     taskID: taskID,
                     workerID: workerID,
-                    stage: didSendText ? .enter : .text,
+                    stage: .submit,
                     message: error.localizedDescription
                 )
             )

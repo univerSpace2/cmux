@@ -7,6 +7,7 @@ import XCTest
 #endif
 
 final class AgentQueuePaneAdapterTests: XCTestCase {
+    @MainActor
     func testPromptSubmissionPastesTextThenSubmitsReturn() {
         XCTAssertEqual(
             AgentQueuePromptSubmission.events(for: "Do the work"),

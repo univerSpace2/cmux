@@ -8,6 +8,7 @@ enum AgentQueueStatus: String, Codable, Equatable, Sendable {
 enum AgentQueueDispatchFailureStage: String, Codable, Equatable, Sendable {
     case text
     case enter
+    case submit
 }
 
 enum AgentTaskStatus: String, Codable, Equatable, Sendable {

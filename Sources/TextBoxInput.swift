@@ -1519,6 +1519,17 @@ enum TextBoxSubmit {
         TextBoxSubmitEventRunner.run(events, via: surface, onComplete: onComplete)
     }
 
+    static func sendEvents(
+        _ events: [DispatchEvent],
+        via surface: TerminalSurface
+    ) async -> CompletionContext {
+        await withCheckedContinuation { continuation in
+            TextBoxSubmitEventRunner.run(events, via: surface) { context in
+                continuation.resume(returning: context)
+            }
+        }
+    }
+
     static func cleanupAttachmentsAfterSubmit(
         from parts: [TextBoxSubmissionPart],
         terminalAgentContext: String,

@@ -58,9 +58,18 @@ struct AgentQueueSendResult: Equatable, Sendable {
     var queued: Bool
 }
 
+@MainActor
+enum AgentQueuePromptSubmission {
+    static func events(for text: String) -> [TextBoxSubmit.DispatchEvent] {
+        [
+            .pasteText(text),
+            .namedKey(TextBoxTerminalKey.returnKey.rawValue),
+        ]
+    }
+}
+
 protocol AgentQueuePaneAdapting: AnyObject, Sendable {
-    func sendText(_ text: String, to surfaceID: UUID) async throws -> AgentQueueSendResult
-    func sendEnter(to surfaceID: UUID) async throws -> AgentQueueSendResult
+    func submitText(_ text: String, to surfaceID: UUID) async throws -> AgentQueueSendResult
     func readText(surfaceID: UUID, lines: Int) async throws -> AgentQueueSurfaceTextSnapshot
     func codexReadiness(surfaceID: UUID) async -> AgentQueueCodexReadiness
 }
@@ -97,42 +106,23 @@ final class AppAgentQueuePaneAdapter: AgentQueuePaneAdapting {
         self.tabManager = tabManager
     }
 
-    func sendText(_ text: String, to surfaceID: UUID) async throws -> AgentQueueSendResult {
+    func submitText(_ text: String, to surfaceID: UUID) async throws -> AgentQueueSendResult {
         guard let terminalPanel = terminalPanel(surfaceID: surfaceID) else {
             throw AgentQueuePaneAdapterError.surfaceNotTerminal(surfaceID)
         }
 
-        let result: AgentQueueSendResult
-        switch terminalPanel.sendInputResult(text) {
-        case .sent:
-            terminalPanel.surface.forceRefresh(reason: "agentQueue.sendText")
-            result = AgentQueueSendResult(surfaceID: surfaceID, queued: false)
-        case .queued:
-            result = AgentQueueSendResult(surfaceID: surfaceID, queued: true)
-        case .inputQueueFull, .surfaceUnavailable, .processExited:
+        let completion = await TextBoxSubmit.sendEvents(
+            AgentQueuePromptSubmission.events(for: text),
+            via: terminalPanel.surface
+        )
+        guard completion.didSubmit else {
             throw AgentQueuePaneAdapterError.surfaceUnavailable(surfaceID)
         }
-
+        terminalPanel.surface.forceRefresh(reason: "agentQueue.submitText")
         if text.trimmingCharacters(in: .whitespacesAndNewlines) != "codex" {
             visibleReadyFallbackBlockedSurfaceIDs.insert(surfaceID)
         }
-        return result
-    }
-
-    func sendEnter(to surfaceID: UUID) async throws -> AgentQueueSendResult {
-        guard let terminalPanel = terminalPanel(surfaceID: surfaceID) else {
-            throw AgentQueuePaneAdapterError.surfaceNotTerminal(surfaceID)
-        }
-
-        switch terminalPanel.sendNamedKeyResult("enter") {
-        case .sent:
-            terminalPanel.surface.forceRefresh(reason: "agentQueue.sendEnter")
-            return AgentQueueSendResult(surfaceID: surfaceID, queued: false)
-        case .queued:
-            return AgentQueueSendResult(surfaceID: surfaceID, queued: true)
-        case .unknownKey, .inputQueueFull, .surfaceUnavailable, .processExited:
-            throw AgentQueuePaneAdapterError.surfaceUnavailable(surfaceID)
-        }
+        return AgentQueueSendResult(surfaceID: surfaceID, queued: false)
     }
 
     func readText(surfaceID: UUID, lines: Int) async throws -> AgentQueueSurfaceTextSnapshot {

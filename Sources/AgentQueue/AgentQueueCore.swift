@@ -61,7 +61,7 @@ enum AgentQueueCore {
 
         case let .dispatchSubmissionFailed(taskID, workerID, stage, message):
             if let taskIndex = state.tasks.firstIndex(where: { $0.id == taskID }) {
-                state.tasks[taskIndex].status = stage == .enter ? .blocked : .failed
+                state.tasks[taskIndex].status = stage == .text ? .failed : .blocked
                 state.tasks[taskIndex].lastError = message
             }
             if let workerIndex = state.workers.firstIndex(where: { $0.id == workerID }) {
