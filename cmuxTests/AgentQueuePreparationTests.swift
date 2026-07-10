@@ -157,7 +157,7 @@ final class AgentQueuePreparationTests: XCTestCase {
     }
 
     @MainActor
-    func testPreparationAppliesSameOptionalSkillToEveryWorker() async throws {
+    func testPreparationAppliesAgentSpecificSkillsToWorkers() async throws {
         let planner = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
         let firstWorker = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
         let secondWorker = UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
@@ -168,12 +168,27 @@ final class AgentQueuePreparationTests: XCTestCase {
         driver.readinessSequences[planner] = [.idle, .busy, .idle]
         driver.readinessSequences[firstWorker] = [.starting, .idle, .busy, .idle]
         driver.readinessSequences[secondWorker] = [.starting, .idle, .busy, .idle]
-        let configuration = try AgentQueuePreparationConfiguration(
-            workerCount: 2,
-            additionalSkill: AgentQueueSkillSelection(
+        var firstProfile = AgentQueueAgentProfile.worker(index: 0)
+        firstProfile = firstProfile.addingSkill(
+            AgentQueueSkillSelection(
                 name: "sample-domain-skill",
                 sourcePath: "/tmp/sample-domain-skill/SKILL.md"
             )
+        )
+        var secondProfile = AgentQueueAgentProfile.worker(index: 1)
+        secondProfile = secondProfile.addingSkill(
+            AgentQueueSkillSelection(
+                name: "careful",
+                sourcePath: "/tmp/careful/SKILL.md"
+            )
+        )
+        var workerProfiles = AgentQueueAgentProfile.defaultWorkers
+        workerProfiles[0] = firstProfile
+        workerProfiles[1] = secondProfile
+        let configuration = try AgentQueuePreparationConfiguration(
+            workerCount: 2,
+            plannerProfile: .planner,
+            workerProfiles: workerProfiles
         )
 
         _ = try await makePreparationService(driver: driver).prepare(
@@ -185,16 +200,22 @@ final class AgentQueuePreparationTests: XCTestCase {
             progress: { _ in }
         )
 
-        for worker in [firstWorker, secondWorker] {
-            XCTAssertEqual(
-                driver.sentTexts.filter { $0.surfaceID == worker }.map(\.text),
-                [
-                    "codex",
-                    "$cmux-agent-queue-worker $sample-domain-skill\n\n" +
-                        "[AGENT_QUEUE_ROLE]\n\n[/AGENT_QUEUE_ROLE]",
-                ]
-            )
-        }
+        XCTAssertEqual(
+            driver.sentTexts.filter { $0.surfaceID == firstWorker }.map(\.text),
+            [
+                "codex",
+                "$cmux-agent-queue-worker $sample-domain-skill\n\n" +
+                    "[AGENT_QUEUE_ROLE]\n\n[/AGENT_QUEUE_ROLE]",
+            ]
+        )
+        XCTAssertEqual(
+            driver.sentTexts.filter { $0.surfaceID == secondWorker }.map(\.text),
+            [
+                "codex",
+                "$cmux-agent-queue-worker $careful\n\n" +
+                    "[AGENT_QUEUE_ROLE]\n\n[/AGENT_QUEUE_ROLE]",
+            ]
+        )
     }
 
     @MainActor
@@ -359,13 +380,17 @@ final class AgentQueuePreparationTests: XCTestCase {
 
     func testPreparationConfigurationDefaultsToOneWorkerAndRejectsOutOfRangeCounts() throws {
         XCTAssertEqual(AgentQueuePreparationConfiguration.defaultConfiguration.workerCount, 1)
-        XCTAssertNil(AgentQueuePreparationConfiguration.defaultConfiguration.additionalSkill)
+        XCTAssertTrue(
+            AgentQueuePreparationConfiguration.defaultConfiguration.workerProfiles
+                .allSatisfy(\.additionalSkills.isEmpty)
+        )
 
         for invalidCount in [0, 5] {
             XCTAssertThrowsError(
                 try AgentQueuePreparationConfiguration(
                     workerCount: invalidCount,
-                    additionalSkill: nil
+                    plannerProfile: .planner,
+                    workerProfiles: AgentQueueAgentProfile.defaultWorkers
                 )
             ) { error in
                 XCTAssertEqual(error as? AgentQueuePreparationError, .invalidWorkerCount(invalidCount))
@@ -427,14 +452,11 @@ final class AgentQueuePreparationTests: XCTestCase {
         XCTAssertEqual(profile.additionalSkills, [first, second])
     }
 
-    func testPreparationSnapshotDefaultsToOneWorkerWithNoAdditionalSkillAndDisabledStart() {
+    func testPreparationSnapshotDefaultsToPlannerAndOneWorkerWithDisabledStart() {
         let snapshot = AgentQueuePreparationSnapshot(preparation: nil, canStart: false)
 
         XCTAssertEqual(snapshot.workerCount, 1)
-        XCTAssertEqual(
-            snapshot.additionalSkillText,
-            String(localized: "agentQueue.preparation.skill.none", defaultValue: "None")
-        )
+        XCTAssertEqual(snapshot.profiles.map(\.id), ["planner", "worker-1"])
         XCTAssertTrue(snapshot.isStartDisabled)
         XCTAssertNil(snapshot.progressText)
     }
@@ -444,7 +466,8 @@ final class AgentQueuePreparationTests: XCTestCase {
             preparation: AgentQueuePreparationState(
                 configuration: try AgentQueuePreparationConfiguration(
                     workerCount: 3,
-                    additionalSkill: nil
+                    plannerProfile: .planner,
+                    workerProfiles: AgentQueueAgentProfile.defaultWorkers
                 ),
                 phase: .waitingForIdle,
                 completedWorkerCount: 2,
@@ -481,6 +504,105 @@ final class AgentQueuePreparationTests: XCTestCase {
         XCTAssertEqual(row.sourcePath, selection.sourcePath)
     }
 
+    func testProfileSnapshotExposesLockedRoleAdditionalSkillsAndDirtyState() {
+        let profile = AgentQueueAgentProfile(
+            id: "worker-2",
+            additionalSkills: [
+                AgentQueueSkillSelection(
+                    name: "careful",
+                    sourcePath: "/skills/careful/SKILL.md"
+                ),
+            ],
+            rolePrompt: "Review risky commands before editing."
+        )
+        let snapshot = AgentQueueAgentProfileSnapshot(
+            profile: profile,
+            record: AgentQueueAgentPreparationRecord(
+                agentID: "worker-2",
+                surfaceID: nil,
+                appliedProfileFingerprint: nil,
+                appliedRoleSkillFingerprint: nil,
+                phase: .notPrepared,
+                errorMessage: nil
+            ),
+            isEditingDisabled: false
+        )
+
+        XCTAssertEqual(snapshot.id, "worker-2")
+        XCTAssertEqual(snapshot.mandatorySkill, "$cmux-agent-queue-worker")
+        XCTAssertEqual(snapshot.additionalSkills.map(\.name), ["careful"])
+        XCTAssertEqual(snapshot.additionalSkills.map(\.sourcePath), ["/skills/careful/SKILL.md"])
+        XCTAssertEqual(snapshot.additionalSkills.map(\.id), ["/skills/careful/SKILL.md"])
+        XCTAssertEqual(snapshot.rolePrompt, "Review risky commands before editing.")
+        XCTAssertTrue(snapshot.requiresPreparation)
+        XCTAssertFalse(snapshot.isEditingDisabled)
+    }
+
+    func testPlannerProfileSnapshotShowsMandatoryPlannerSkillAndFailure() {
+        let snapshot = AgentQueueAgentProfileSnapshot(
+            profile: .planner,
+            record: AgentQueueAgentPreparationRecord(
+                agentID: "planner",
+                surfaceID: nil,
+                appliedProfileFingerprint: nil,
+                appliedRoleSkillFingerprint: nil,
+                phase: .failed,
+                errorMessage: "planner setup failed"
+            ),
+            isEditingDisabled: true
+        )
+
+        XCTAssertEqual(snapshot.mandatorySkill, "$cmux-agent-queue-planner")
+        XCTAssertEqual(snapshot.errorMessage, "planner setup failed")
+        XCTAssertTrue(snapshot.requiresPreparation)
+        XCTAssertTrue(snapshot.isEditingDisabled)
+    }
+
+    func testPreparationSnapshotIncludesOnlyActiveProfilesAndScopedRecords() throws {
+        let configuration = try AgentQueuePreparationConfiguration(
+            workerCount: 2,
+            plannerProfile: .planner,
+            workerProfiles: AgentQueueAgentProfile.defaultWorkers
+        )
+        let preparation = AgentQueuePreparationState(
+            configuration: configuration,
+            phase: .notPrepared,
+            completedWorkerCount: 0,
+            errorMessage: nil,
+            records: [
+                AgentQueueAgentPreparationRecord(
+                    agentID: "worker-2",
+                    surfaceID: nil,
+                    appliedProfileFingerprint: nil,
+                    appliedRoleSkillFingerprint: nil,
+                    phase: .failed,
+                    errorMessage: "worker two failed"
+                ),
+                AgentQueueAgentPreparationRecord(
+                    agentID: "worker-4",
+                    surfaceID: nil,
+                    appliedProfileFingerprint: nil,
+                    appliedRoleSkillFingerprint: nil,
+                    phase: .failed,
+                    errorMessage: "hidden failure"
+                ),
+            ]
+        )
+
+        let snapshot = AgentQueuePreparationSnapshot(
+            preparation: preparation,
+            canStart: false,
+            canEditProfiles: false,
+            hasActiveWork: true
+        )
+
+        XCTAssertEqual(snapshot.profiles.map(\.id), ["planner", "worker-1", "worker-2"])
+        XCTAssertEqual(snapshot.profiles.last?.errorMessage, "worker two failed")
+        XCTAssertTrue(snapshot.profiles.allSatisfy(\.isEditingDisabled))
+        XCTAssertTrue(snapshot.isWorkerCountDecreaseDisabled)
+        XCTAssertFalse(snapshot.isWorkerCountIncreaseDisabled)
+    }
+
     func testSkillCatalogExcludesMandatoryRoles() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-queue-catalog-\(UUID().uuidString)", isDirectory: true)
@@ -510,20 +632,22 @@ final class AgentQueuePreparationTests: XCTestCase {
         XCTAssertTrue(options.first { $0.name == "sample-domain-skill" }?.sourcePath.contains(root.path) == true)
     }
 
-    func testSelectedSkillIsAppliedToEveryWorkerPrompt() throws {
+    func testWorkerProfilesBuildIndependentPrompts() {
         let selectedSkill = AgentQueueSkillSelection(
             name: "sample-domain-skill",
             sourcePath: "/tmp/skills/sample-domain-skill/SKILL.md"
         )
-        let configuration = try AgentQueuePreparationConfiguration(
-            workerCount: 3,
-            additionalSkill: selectedSkill
+        let selected = AgentQueueAgentProfile.worker(index: 0).addingSkill(selectedSkill)
+        let plain = AgentQueueAgentProfile.worker(index: 1)
+
+        XCTAssertTrue(
+            AgentQueueSkillPromptBuilder.prompt(role: .worker, profile: selected)
+                .hasPrefix("$cmux-agent-queue-worker $sample-domain-skill")
         )
-
-        let prompts = AgentQueueSkillPromptBuilder.workerPrompts(configuration: configuration)
-
-        XCTAssertEqual(prompts.count, 3)
-        XCTAssertEqual(Set(prompts), ["$cmux-agent-queue-worker $sample-domain-skill"])
+        XCTAssertTrue(
+            AgentQueueSkillPromptBuilder.prompt(role: .worker, profile: plain)
+                .hasPrefix("$cmux-agent-queue-worker\n")
+        )
     }
 
     func testWorkerPromptContainsOrderedSkillsAndRoleBlock() {

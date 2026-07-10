@@ -177,7 +177,11 @@ final class AgentQueueControllerTests: XCTestCase {
             preparer: preparer
         )
         fixture.controller.setPreparationConfiguration(
-            try AgentQueuePreparationConfiguration(workerCount: 2, additionalSkill: nil)
+            try AgentQueuePreparationConfiguration(
+                workerCount: 2,
+                plannerProfile: .planner,
+                workerProfiles: AgentQueueAgentProfile.defaultWorkers
+            )
         )
 
         await fixture.controller.prepareWorkers(allowSkillChanges: false)
@@ -232,7 +236,11 @@ final class AgentQueueControllerTests: XCTestCase {
         var persisted = fixture.controller.state
         persisted.queue.status = .running
         persisted.preparation = AgentQueuePreparationState(
-            configuration: try AgentQueuePreparationConfiguration(workerCount: 2, additionalSkill: nil),
+            configuration: try AgentQueuePreparationConfiguration(
+                workerCount: 2,
+                plannerProfile: .planner,
+                workerProfiles: AgentQueueAgentProfile.defaultWorkers
+            ),
             phase: .ready,
             completedWorkerCount: 2,
             errorMessage: nil
@@ -805,7 +813,6 @@ private final class AgentQueueControllerFixture {
         pollInterval: Duration = .seconds(1),
         prepared: Bool = true,
         workerCount: Int = 1,
-        additionalSkill: AgentQueueSkillSelection? = nil,
         configuration: AgentQueuePreparationConfiguration? = nil,
         includeWorker: Bool = true,
         store: AgentQueueStore? = nil,
@@ -824,7 +831,8 @@ private final class AgentQueueControllerFixture {
         let fixedNow = now
         let configuration = configuration ?? (try! AgentQueuePreparationConfiguration(
             workerCount: workerCount,
-            additionalSkill: additionalSkill
+            plannerProfile: .planner,
+            workerProfiles: AgentQueueAgentProfile.defaultWorkers
         ))
         let workerSurfaceIDs = [workerSurfaceID] + additionalWorkerSurfaceIDs
         let workers = includeWorker
