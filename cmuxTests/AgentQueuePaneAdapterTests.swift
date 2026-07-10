@@ -7,6 +7,16 @@ import XCTest
 #endif
 
 final class AgentQueuePaneAdapterTests: XCTestCase {
+    func testPromptSubmissionPastesTextThenSubmitsReturn() {
+        XCTAssertEqual(
+            AgentQueuePromptSubmission.events(for: "Do the work"),
+            [
+                .pasteText("Do the work"),
+                .namedKey(TextBoxTerminalKey.returnKey.rawValue),
+            ]
+        )
+    }
+
     func testCodexReadinessClassificationUsesLiveStateThenShellActivity() {
         XCTAssertEqual(
             AgentQueueCodexReadinessClassifier.classify(

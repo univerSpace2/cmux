@@ -28,12 +28,14 @@ final class AgentQueuePreparationTests: XCTestCase {
             progress: { _ in }
         )
 
-        XCTAssertEqual(driver.sentTexts.first?.surfaceID, planner)
-        XCTAssertEqual(driver.sentTexts.first?.text, "codex")
-        XCTAssertTrue(driver.sentTexts.contains { item in
+        XCTAssertEqual(driver.submittedTexts.first?.surfaceID, planner)
+        XCTAssertEqual(driver.submittedTexts.first?.text, "codex")
+        XCTAssertTrue(driver.submittedTexts.contains { item in
             item.surfaceID == planner && item.text ==
                 "$cmux-agent-queue-planner\n\n[AGENT_QUEUE_ROLE_START]\n"
         })
+        XCTAssertTrue(driver.sentTexts.isEmpty)
+        XCTAssertTrue(driver.enterSurfaceIDs.isEmpty)
     }
 
     @MainActor
@@ -56,9 +58,9 @@ final class AgentQueuePreparationTests: XCTestCase {
             progress: { _ in }
         )
 
-        XCTAssertFalse(driver.sentTexts.contains { $0.surfaceID == planner && $0.text == "codex" })
+        XCTAssertFalse(driver.submittedTexts.contains { $0.surfaceID == planner && $0.text == "codex" })
         XCTAssertEqual(
-            driver.sentTexts.filter { $0.surfaceID == planner }.map(\.text),
+            driver.submittedTexts.filter { $0.surfaceID == planner }.map(\.text),
             ["$cmux-agent-queue-planner\n\n[AGENT_QUEUE_ROLE_START]\n"]
         )
     }
@@ -83,7 +85,7 @@ final class AgentQueuePreparationTests: XCTestCase {
             progress: { _ in }
         )
 
-        XCTAssertFalse(driver.sentTexts.contains { $0.surfaceID == planner })
+        XCTAssertFalse(driver.submittedTexts.contains { $0.surfaceID == planner })
         XCTAssertEqual(result.failures.map(\.agentID), ["planner"])
         XCTAssertEqual(result.preparedAgents.map(\.agentID), ["worker-1"])
     }
@@ -119,7 +121,7 @@ final class AgentQueuePreparationTests: XCTestCase {
             ),
         ])
         XCTAssertEqual(
-            driver.sentTexts.filter { $0.surfaceID == worker }.map(\.text),
+            driver.submittedTexts.filter { $0.surfaceID == worker }.map(\.text),
             ["codex", "$cmux-agent-queue-worker\n\n[AGENT_QUEUE_ROLE_START]\n"]
         )
         XCTAssertEqual(
@@ -151,7 +153,7 @@ final class AgentQueuePreparationTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            driver.sentTexts.filter { $0.surfaceID == worker }.map(\.text),
+            driver.submittedTexts.filter { $0.surfaceID == worker }.map(\.text),
             ["codex", "$cmux-agent-queue-worker\n\n[AGENT_QUEUE_ROLE_START]\n"]
         )
     }
@@ -201,7 +203,7 @@ final class AgentQueuePreparationTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            driver.sentTexts.filter { $0.surfaceID == firstWorker }.map(\.text),
+            driver.submittedTexts.filter { $0.surfaceID == firstWorker }.map(\.text),
             [
                 "codex",
                 "$cmux-agent-queue-worker $sample-domain-skill\n\n" +
@@ -209,7 +211,7 @@ final class AgentQueuePreparationTests: XCTestCase {
             ]
         )
         XCTAssertEqual(
-            driver.sentTexts.filter { $0.surfaceID == secondWorker }.map(\.text),
+            driver.submittedTexts.filter { $0.surfaceID == secondWorker }.map(\.text),
             [
                 "codex",
                 "$cmux-agent-queue-worker $careful\n\n" +
@@ -253,10 +255,10 @@ final class AgentQueuePreparationTests: XCTestCase {
             progress: { _ in }
         )
 
-        XCTAssertFalse(driver.sentTexts.contains { $0.surfaceID == planner })
-        XCTAssertFalse(driver.sentTexts.contains { $0.surfaceID == firstWorker })
+        XCTAssertFalse(driver.submittedTexts.contains { $0.surfaceID == planner })
+        XCTAssertFalse(driver.submittedTexts.contains { $0.surfaceID == firstWorker })
         XCTAssertEqual(
-            driver.sentTexts.filter { $0.surfaceID == secondWorker }.map(\.text),
+            driver.submittedTexts.filter { $0.surfaceID == secondWorker }.map(\.text),
             [
                 "$cmux-agent-queue-worker $api-integration\n\n" +
                     "[AGENT_QUEUE_ROLE_START]\nOwn API integration.",
@@ -313,7 +315,7 @@ final class AgentQueuePreparationTests: XCTestCase {
         )
         XCTAssertEqual(prepared.failures.map(\.agentID), ["worker-1"])
         XCTAssertEqual(prepared.failures.map(\.surfaceID), [firstWorker])
-        XCTAssertTrue(driver.sentTexts.contains { item in
+        XCTAssertTrue(driver.submittedTexts.contains { item in
             item.surfaceID == secondWorker && item.text.contains("$api-integration")
         })
     }
@@ -939,6 +941,7 @@ private final class FakeAgentQueueWorkspaceDriver: AgentQueueWorkspaceDriving {
     var shellActivityBySurface: [UUID: AgentQueueShellActivity]
     var readinessSequences: [UUID: [AgentQueueCodexReadiness]] = [:]
     var sentTexts: [(surfaceID: UUID, text: String)] = []
+    var submittedTexts: [(surfaceID: UUID, text: String)] = []
     var enterSurfaceIDs: [UUID] = []
     var createdSplits: [AgentQueueWorkerSplitRequest] = []
     var closedSurfaceIDs: [UUID] = []
@@ -1001,5 +1004,12 @@ private final class FakeAgentQueueWorkspaceDriver: AgentQueueWorkspaceDriving {
 
     func sendEnter(to surfaceID: UUID) async throws {
         enterSurfaceIDs.append(surfaceID)
+    }
+
+    func submitText(_ text: String, to surfaceID: UUID) async throws {
+        submittedTexts.append((surfaceID, text))
+        if sendTextErrorSurfaceIDs.contains(surfaceID) {
+            throw AgentQueuePaneAdapterError.surfaceUnavailable(surfaceID)
+        }
     }
 }

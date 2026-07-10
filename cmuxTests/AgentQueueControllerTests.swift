@@ -8,16 +8,20 @@ import XCTest
 
 @MainActor
 final class AgentQueueControllerTests: XCTestCase {
-    func testStartDispatchesInstructionAndEnterToWorker() async throws {
+    func testStartAtomicallySubmitsInstructionAndReturnToWorker() async throws {
         let fixture = AgentQueueControllerFixture()
         let controller = fixture.controller
+        fixture.adapter.enterError = AgentQueuePaneAdapterError.surfaceUnavailable(
+            fixture.workerSurfaceID
+        )
 
         controller.createTasks(from: "Inspect repo")
         await controller.start()
 
-        XCTAssertEqual(fixture.adapter.sentTexts.count, 1)
-        XCTAssertTrue(fixture.adapter.sentTexts[0].text.contains("task_id: T-20260709-0001"))
-        XCTAssertEqual(fixture.adapter.enterSurfaces, [fixture.workerSurfaceID])
+        XCTAssertEqual(fixture.adapter.submittedTexts.count, 1)
+        XCTAssertTrue(fixture.adapter.submittedTexts[0].text.contains("task_id: T-20260709-0001"))
+        XCTAssertTrue(fixture.adapter.sentTexts.isEmpty)
+        XCTAssertTrue(fixture.adapter.enterSurfaces.isEmpty)
         XCTAssertEqual(controller.state.tasks.first?.status, .awaitingReport)
     }
 
@@ -41,10 +45,11 @@ final class AgentQueueControllerTests: XCTestCase {
 
         await controller.pollReportsOnce(now: fixture.now.addingTimeInterval(60))
 
-        XCTAssertTrue(fixture.adapter.sentTexts.contains { item in
+        XCTAssertTrue(fixture.adapter.submittedTexts.contains { item in
             item.surfaceID == fixture.plannerSurfaceID &&
                 item.text.hasPrefix("$cmux-agent-queue-planner $product-director\n\n") &&
-                item.text.contains("[AGENT_QUEUE_ROLE]\nReview worker evidence.\n[/AGENT_QUEUE_ROLE]") &&
+                item.text.contains("[AGENT_QUEUE_ROLE_START]\nReview worker evidence.") &&
+                !item.text.contains("[/AGENT_QUEUE_ROLE]") &&
                 item.text.contains("자동 복구 보고 [T-20260709-0001]")
         })
         XCTAssertEqual(controller.state.tasks.first?.status, .completed)
@@ -63,7 +68,7 @@ final class AgentQueueControllerTests: XCTestCase {
         await controller.pollReportsOnce(now: fixture.now.addingTimeInterval(61))
 
         XCTAssertEqual(
-            fixture.adapter.sentTexts.filter { $0.surfaceID == fixture.plannerSurfaceID }.count,
+            fixture.adapter.submittedTexts.filter { $0.surfaceID == fixture.plannerSurfaceID }.count,
             1
         )
         XCTAssertEqual(
@@ -112,15 +117,18 @@ final class AgentQueueControllerTests: XCTestCase {
         XCTAssertEqual(controller.state.tasks.first?.status, .awaitingReport)
     }
 
-    func testEnterFailureDoesNotMarkTaskAwaitingReport() async {
+    func testAtomicSubmissionFailureDoesNotMarkTaskAwaitingReport() async {
         let fixture = AgentQueueControllerFixture()
-        fixture.adapter.enterError = AgentQueuePaneAdapterError.surfaceUnavailable(fixture.workerSurfaceID)
+        fixture.adapter.submitError = AgentQueuePaneAdapterError.surfaceUnavailable(
+            fixture.workerSurfaceID
+        )
 
         fixture.controller.createTasks(from: "Inspect repo")
         await fixture.controller.start()
 
-        XCTAssertEqual(fixture.adapter.sentTexts.count, 1)
-        XCTAssertEqual(fixture.adapter.enterSurfaces, [fixture.workerSurfaceID])
+        XCTAssertEqual(fixture.adapter.submittedTexts.count, 1)
+        XCTAssertTrue(fixture.adapter.sentTexts.isEmpty)
+        XCTAssertTrue(fixture.adapter.enterSurfaces.isEmpty)
         XCTAssertEqual(fixture.controller.state.tasks.first?.status, .blocked)
         XCTAssertEqual(fixture.controller.state.queue.status, .paused)
         XCTAssertNotEqual(fixture.controller.state.tasks.first?.status, .awaitingReport)
@@ -133,7 +141,7 @@ final class AgentQueueControllerTests: XCTestCase {
         await fixture.controller.start()
 
         XCTAssertFalse(fixture.controller.canStart)
-        XCTAssertTrue(fixture.adapter.sentTexts.isEmpty)
+        XCTAssertTrue(fixture.adapter.submittedTexts.isEmpty)
         XCTAssertEqual(fixture.controller.state.tasks.first?.status, .queued)
         XCTAssertEqual(fixture.controller.state.queue.status, .paused)
     }
@@ -325,11 +333,10 @@ final class AgentQueueControllerTests: XCTestCase {
         await fixture.controller.start()
 
         XCTAssertTrue(
-            fixture.adapter.sentTexts[0].text.hasPrefix(
+            fixture.adapter.submittedTexts[0].text.hasPrefix(
                 "$cmux-agent-queue-worker $sample-domain-skill $careful\n\n" +
-                    "[AGENT_QUEUE_ROLE]\n" +
-                    "Own the assigned implementation.\n" +
-                    "[/AGENT_QUEUE_ROLE]\n"
+                    "[AGENT_QUEUE_ROLE_START]\n" +
+                    "Own the assigned implementation.\n"
             )
         )
     }
@@ -901,9 +908,11 @@ private final class AgentQueueControllerFixture {
 
 private final class FakeAgentQueuePaneAdapter: AgentQueuePaneAdapting, @unchecked Sendable {
     var sentTexts: [(surfaceID: UUID, text: String)] = []
+    var submittedTexts: [(surfaceID: UUID, text: String)] = []
     var enterSurfaces: [UUID] = []
     var textBySurface: [UUID: String] = [:]
     var enterError: Error?
+    var submitError: Error?
     var readCount = 0
     var unavailableSurfaceIDs: Set<UUID> = []
     var readinessBySurface: [UUID: AgentQueueCodexReadiness] = [:]
@@ -917,6 +926,14 @@ private final class FakeAgentQueuePaneAdapter: AgentQueuePaneAdapting, @unchecke
         enterSurfaces.append(surfaceID)
         if let enterError {
             throw enterError
+        }
+        return AgentQueueSendResult(surfaceID: surfaceID, queued: false)
+    }
+
+    func submitText(_ text: String, to surfaceID: UUID) async throws -> AgentQueueSendResult {
+        submittedTexts.append((surfaceID, text))
+        if let submitError {
+            throw submitError
         }
         return AgentQueueSendResult(surfaceID: surfaceID, queued: false)
     }
