@@ -115,6 +115,54 @@ final class AgentQueueCoreTests: XCTestCase {
         ])
     }
 
+    func testSubmittedDispatchTransitionsToAwaitingReport() {
+        var fixture = AgentQueueCoreFixture.make(taskCount: 1, workerCount: 1)
+        fixture.state.queue.status = .running
+        fixture.state.tasks[0].status = .dispatching
+        fixture.state.workers[0].status = .assigned
+        fixture.state.workers[0].currentTaskID = fixture.state.tasks[0].id
+
+        let result = AgentQueueCore.reduce(
+            state: fixture.state,
+            event: .dispatchSubmitted(
+                taskID: "T-20260709-0001",
+                workerID: "worker-1",
+                queued: false
+            ),
+            now: fixture.now
+        )
+
+        XCTAssertEqual(result.state.tasks[0].status, .awaitingReport)
+        XCTAssertEqual(result.state.workers[0].status, .awaitingReport)
+        XCTAssertTrue(result.effects.isEmpty)
+        XCTAssertEqual(result.state.events.suffix(2).map(\.type), [.taskDispatched, .enterSubmitted])
+    }
+
+    func testEnterSubmissionFailureBlocksTaskAndPausesQueue() {
+        var fixture = AgentQueueCoreFixture.make(taskCount: 1, workerCount: 1)
+        fixture.state.queue.status = .running
+        fixture.state.tasks[0].status = .dispatching
+        fixture.state.workers[0].status = .assigned
+        fixture.state.workers[0].currentTaskID = fixture.state.tasks[0].id
+
+        let result = AgentQueueCore.reduce(
+            state: fixture.state,
+            event: .dispatchSubmissionFailed(
+                taskID: "T-20260709-0001",
+                workerID: "worker-1",
+                stage: .enter,
+                message: "Enter unavailable"
+            ),
+            now: fixture.now
+        )
+
+        XCTAssertEqual(result.state.tasks[0].status, .blocked)
+        XCTAssertEqual(result.state.tasks[0].lastError, "Enter unavailable")
+        XCTAssertEqual(result.state.workers[0].status, .offline)
+        XCTAssertEqual(result.state.queue.status, .paused)
+        XCTAssertTrue(result.effects.isEmpty)
+    }
+
     func testTimeoutSendsRecoveryUntilRetryLimitThenPausesQueue() {
         var fixture = AgentQueueCoreFixture.make(taskCount: 1, workerCount: 1)
         fixture.state.queue.status = .running

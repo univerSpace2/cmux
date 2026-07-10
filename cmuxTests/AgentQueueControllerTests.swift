@@ -36,6 +36,20 @@ final class AgentQueueControllerTests: XCTestCase {
         })
         XCTAssertEqual(controller.state.tasks.first?.status, .completed)
     }
+
+    func testEnterFailureDoesNotMarkTaskAwaitingReport() async {
+        let fixture = AgentQueueControllerFixture()
+        fixture.adapter.enterError = AgentQueuePaneAdapterError.surfaceUnavailable(fixture.workerSurfaceID)
+
+        fixture.controller.createTasks(from: "Inspect repo")
+        await fixture.controller.start()
+
+        XCTAssertEqual(fixture.adapter.sentTexts.count, 1)
+        XCTAssertEqual(fixture.adapter.enterSurfaces, [fixture.workerSurfaceID])
+        XCTAssertEqual(fixture.controller.state.tasks.first?.status, .blocked)
+        XCTAssertEqual(fixture.controller.state.queue.status, .paused)
+        XCTAssertNotEqual(fixture.controller.state.tasks.first?.status, .awaitingReport)
+    }
 }
 
 @MainActor
@@ -86,6 +100,7 @@ private final class FakeAgentQueuePaneAdapter: AgentQueuePaneAdapting, @unchecke
     var sentTexts: [(surfaceID: UUID, text: String)] = []
     var enterSurfaces: [UUID] = []
     var textBySurface: [UUID: String] = [:]
+    var enterError: Error?
 
     func sendText(_ text: String, to surfaceID: UUID) async throws -> AgentQueueSendResult {
         sentTexts.append((surfaceID, text))
@@ -94,6 +109,9 @@ private final class FakeAgentQueuePaneAdapter: AgentQueuePaneAdapting, @unchecke
 
     func sendEnter(to surfaceID: UUID) async throws -> AgentQueueSendResult {
         enterSurfaces.append(surfaceID)
+        if let enterError {
+            throw enterError
+        }
         return AgentQueueSendResult(surfaceID: surfaceID, queued: false)
     }
 
