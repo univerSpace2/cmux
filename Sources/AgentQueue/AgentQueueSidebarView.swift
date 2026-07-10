@@ -1,6 +1,68 @@
 import Foundation
 import SwiftUI
 
+struct AgentQueueSkillRowSnapshot: Identifiable, Equatable, Sendable {
+    let id: String
+    let name: String
+    let sourcePath: String
+
+    init(selection: AgentQueueSkillSelection) {
+        id = selection.sourcePath
+        name = selection.name
+        sourcePath = selection.sourcePath
+    }
+
+    var selection: AgentQueueSkillSelection {
+        AgentQueueSkillSelection(name: name, sourcePath: sourcePath)
+    }
+}
+
+struct AgentQueuePreparationSnapshot: Equatable, Sendable {
+    let workerCount: Int
+    let selectedSkillID: String?
+    let additionalSkillText: String
+    let phase: AgentQueuePreparationPhase
+    let phaseText: String
+    let progressText: String?
+    let errorMessage: String?
+    let showsRetry: Bool
+    let isPreparing: Bool
+    let isStartDisabled: Bool
+
+    init(preparation: AgentQueuePreparationState?, canStart: Bool) {
+        let preparation = preparation ?? AgentQueuePreparationState(
+            configuration: .defaultConfiguration,
+            phase: .notPrepared,
+            completedWorkerCount: 0,
+            errorMessage: nil
+        )
+        workerCount = preparation.configuration.workerCount
+        selectedSkillID = preparation.configuration.additionalSkill?.id
+        additionalSkillText = preparation.configuration.additionalSkill?.name
+            ?? String(localized: "agentQueue.preparation.skill.none", defaultValue: "None")
+        phase = preparation.phase
+        phaseText = AgentQueueDisplayText.preparationPhase(preparation.phase)
+        errorMessage = preparation.errorMessage
+        showsRetry = preparation.phase == .failed
+        isPreparing = preparation.phase.isInProgress
+        isStartDisabled = !canStart
+
+        switch preparation.phase {
+        case .startingWorkers, .applyingSkills, .waitingForIdle:
+            progressText = String.localizedStringWithFormat(
+                String(
+                    localized: "agentQueue.preparation.progressFormat",
+                    defaultValue: "Workers %d/%d"
+                ),
+                preparation.completedWorkerCount,
+                preparation.configuration.workerCount
+            )
+        case .notPrepared, .checkingSkills, .awaitingSkillConfirmation, .startingPlanner, .ready, .failed:
+            progressText = nil
+        }
+    }
+}
+
 private struct AgentQueueTaskRowSnapshot: Identifiable, Equatable {
     var id: String
     var title: String
@@ -29,6 +91,37 @@ private struct AgentQueueLogRowSnapshot: Identifiable, Equatable {
 struct AgentQueueSidebarView: View {
     @ObservedObject var controller: AgentQueueController
     @State private var taskInput = ""
+    @State private var skillQuery = ""
+    @State private var skillRows: [AgentQueueSkillRowSnapshot] = []
+    @State private var showingSkillConfirmation = false
+
+    private var preparationSnapshot: AgentQueuePreparationSnapshot {
+        AgentQueuePreparationSnapshot(
+            preparation: controller.state.preparation,
+            canStart: controller.canStart
+        )
+    }
+
+    private var displayedSkillRows: [AgentQueueSkillRowSnapshot] {
+        guard let selected = controller.state.preparation?.configuration.additionalSkill else {
+            return skillRows
+        }
+        guard !skillRows.contains(where: { $0.id == selected.id }) else { return skillRows }
+        return [AgentQueueSkillRowSnapshot(selection: selected)] + skillRows
+    }
+
+    private var skillConfirmationMessage: String {
+        let roles = controller.pendingRoleSkillChanges
+            .map { "$\($0.role.rawValue)" }
+            .joined(separator: ", ")
+        return String.localizedStringWithFormat(
+            String(
+                localized: "agentQueue.preparation.confirmation.body",
+                defaultValue: "Install or update these Agent Queue role skills before preparing panes: %@"
+            ),
+            roles
+        )
+    }
 
     private var taskRows: [AgentQueueTaskRowSnapshot] {
         let workersBySurface = Dictionary(uniqueKeysWithValues: controller.state.workers.map { ($0.surfaceID, $0.label) })
@@ -74,6 +167,7 @@ struct AgentQueueSidebarView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    preparationSection
                     inputSection
                     queueSection
                     workerSection
@@ -83,6 +177,42 @@ struct AgentQueueSidebarView: View {
             }
         }
         .accessibilityIdentifier("AgentQueueSidebar")
+        .task(id: skillQuery) {
+            if !skillQuery.isEmpty {
+                try? await Task.sleep(for: .milliseconds(150))
+            }
+            guard !Task.isCancelled else { return }
+            let options = await controller.skillOptions(query: skillQuery)
+            guard !Task.isCancelled else { return }
+            skillRows = options.map(AgentQueueSkillRowSnapshot.init(selection:))
+            if controller.state.preparation?.phase == .awaitingSkillConfirmation {
+                showingSkillConfirmation = true
+            }
+        }
+        .onChange(of: controller.state.preparation?.phase) { phase in
+            if phase == .awaitingSkillConfirmation {
+                showingSkillConfirmation = true
+            }
+        }
+        .alert(
+            String(
+                localized: "agentQueue.preparation.confirmation.title",
+                defaultValue: "Install Agent Queue role skills?"
+            ),
+            isPresented: $showingSkillConfirmation
+        ) {
+            Button(
+                String(localized: "agentQueue.preparation.confirmation.cancel", defaultValue: "Cancel"),
+                role: .cancel
+            ) {}
+            Button(
+                String(localized: "agentQueue.preparation.confirmation.apply", defaultValue: "Install and Prepare")
+            ) {
+                Task { await controller.prepareWorkers(allowSkillChanges: true) }
+            }
+        } message: {
+            Text(skillConfirmationMessage)
+        }
     }
 
     private var header: some View {
@@ -101,8 +231,100 @@ struct AgentQueueSidebarView: View {
                     Task { await controller.start() }
                 }
             }
+            .disabled(
+                controller.state.queue.status != .running && preparationSnapshot.isStartDisabled
+            )
         }
         .padding(10)
+    }
+
+    private var preparationSection: some View {
+        let snapshot = preparationSnapshot
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(String(localized: "agentQueue.preparation.title", defaultValue: "Worker preparation"))
+                .font(.subheadline.weight(.semibold))
+
+            Stepper(value: workerCountBinding, in: 1...4) {
+                HStack {
+                    Text(String(localized: "agentQueue.preparation.workerCount", defaultValue: "Worker count"))
+                    Spacer()
+                    Text(snapshot.workerCount, format: .number)
+                        .monospacedDigit()
+                }
+            }
+            .disabled(snapshot.isPreparing)
+
+            TextField(
+                String(
+                    localized: "agentQueue.preparation.skill.searchPlaceholder",
+                    defaultValue: "Search additional skills"
+                ),
+                text: $skillQuery
+            )
+            .textFieldStyle(.roundedBorder)
+            .disabled(snapshot.isPreparing)
+
+            Menu {
+                Button(String(localized: "agentQueue.preparation.skill.none", defaultValue: "None")) {
+                    setAdditionalSkill(nil)
+                }
+                Divider()
+                ForEach(displayedSkillRows) { row in
+                    Button {
+                        setAdditionalSkill(row.selection)
+                    } label: {
+                        VStack(alignment: .leading) {
+                            Text(row.name)
+                            Text(row.sourcePath)
+                        }
+                    }
+                }
+            } label: {
+                HStack {
+                    Text(String(localized: "agentQueue.preparation.additionalSkill", defaultValue: "Additional skill"))
+                    Spacer()
+                    Text(snapshot.additionalSkillText)
+                        .lineLimit(1)
+                        .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .disabled(snapshot.isPreparing)
+            .accessibilityIdentifier("AgentQueue.additionalSkill")
+
+            HStack(spacing: 8) {
+                Button(
+                    snapshot.showsRetry
+                        ? String(localized: "agentQueue.preparation.retry", defaultValue: "Retry")
+                        : String(localized: "agentQueue.preparation.prepare", defaultValue: "Prepare Workers")
+                ) {
+                    Task { await controller.prepareWorkers(allowSkillChanges: false) }
+                }
+                .disabled(snapshot.isPreparing)
+
+                if snapshot.isPreparing {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+
+            Text(snapshot.phaseText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let progressText = snapshot.progressText {
+                Text(progressText)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            if let errorMessage = snapshot.errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
+            }
+        }
     }
 
     private var inputSection: some View {
@@ -140,9 +362,28 @@ struct AgentQueueSidebarView: View {
     }
 
     private var workerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let snapshot = preparationSnapshot
+        return VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "agentQueue.workers.title", defaultValue: "Workers"))
                 .font(.subheadline.weight(.semibold))
+            HStack {
+                VStack(alignment: .leading) {
+                    Text(String(localized: "agentQueue.preparation.planner", defaultValue: "Planner"))
+                    Text(
+                        String.localizedStringWithFormat(
+                            String(localized: "agentQueue.worker.surfaceFormat", defaultValue: "surface:%@"),
+                            String(controller.state.queue.plannerSurfaceID.uuidString.prefix(8))
+                        )
+                    )
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(snapshot.phaseText)
+                    .font(.caption.weight(.semibold))
+            }
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
             LazyVStack(spacing: 6) {
                 ForEach(workerRows) { row in
                     AgentQueueWorkerRow(row: row)
@@ -161,6 +402,30 @@ struct AgentQueueSidebarView: View {
                 }
             }
         }
+    }
+
+    private var workerCountBinding: Binding<Int> {
+        Binding(
+            get: { preparationSnapshot.workerCount },
+            set: setWorkerCount
+        )
+    }
+
+    private func setWorkerCount(_ workerCount: Int) {
+        let additionalSkill = controller.state.preparation?.configuration.additionalSkill
+        guard let configuration = try? AgentQueuePreparationConfiguration(
+            workerCount: workerCount,
+            additionalSkill: additionalSkill
+        ) else { return }
+        controller.setPreparationConfiguration(configuration)
+    }
+
+    private func setAdditionalSkill(_ additionalSkill: AgentQueueSkillSelection?) {
+        guard let configuration = try? AgentQueuePreparationConfiguration(
+            workerCount: preparationSnapshot.workerCount,
+            additionalSkill: additionalSkill
+        ) else { return }
+        controller.setPreparationConfiguration(configuration)
     }
 }
 
@@ -238,6 +503,32 @@ private struct AgentQueueLogRow: View {
 }
 
 private enum AgentQueueDisplayText {
+    static func preparationPhase(_ phase: AgentQueuePreparationPhase) -> String {
+        switch phase {
+        case .notPrepared:
+            return String(localized: "agentQueue.preparation.phase.notPrepared", defaultValue: "Not prepared")
+        case .checkingSkills:
+            return String(localized: "agentQueue.preparation.phase.checkingSkills", defaultValue: "Checking role skills…")
+        case .awaitingSkillConfirmation:
+            return String(
+                localized: "agentQueue.preparation.phase.awaitingSkillConfirmation",
+                defaultValue: "Waiting for skill installation confirmation"
+            )
+        case .startingPlanner:
+            return String(localized: "agentQueue.preparation.phase.startingPlanner", defaultValue: "Starting planner Codex…")
+        case .startingWorkers:
+            return String(localized: "agentQueue.preparation.phase.startingWorkers", defaultValue: "Starting worker Codex…")
+        case .applyingSkills:
+            return String(localized: "agentQueue.preparation.phase.applyingSkills", defaultValue: "Applying skills…")
+        case .waitingForIdle:
+            return String(localized: "agentQueue.preparation.phase.waitingForIdle", defaultValue: "Waiting for workers…")
+        case .ready:
+            return String(localized: "agentQueue.preparation.phase.ready", defaultValue: "Ready")
+        case .failed:
+            return String(localized: "agentQueue.preparation.phase.failed", defaultValue: "Preparation failed")
+        }
+    }
+
     static func taskStatus(_ status: AgentTaskStatus) -> String {
         switch status {
         case .queued:
@@ -284,6 +575,17 @@ private enum AgentQueueDisplayText {
             return String(localized: "agentQueue.task.executionMode.sequential", defaultValue: "Sequential")
         case .parallelAllowed:
             return String(localized: "agentQueue.task.executionMode.parallelAllowed", defaultValue: "Parallel allowed")
+        }
+    }
+}
+
+private extension AgentQueuePreparationPhase {
+    var isInProgress: Bool {
+        switch self {
+        case .checkingSkills, .startingPlanner, .startingWorkers, .applyingSkills, .waitingForIdle:
+            return true
+        case .notPrepared, .awaitingSkillConfirmation, .ready, .failed:
+            return false
         }
     }
 }
