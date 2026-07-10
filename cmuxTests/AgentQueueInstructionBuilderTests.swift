@@ -127,6 +127,37 @@ final class AgentQueueInstructionBuilderTests: XCTestCase {
         XCTAssertFalse(text.contains("[AGENT_QUEUE_ROLE_END]"))
         XCTAssertTrue(text.hasSuffix("자동 복구 보고 [T-20260709-0008]: done"))
     }
+
+    func testPlannerRequestContainsGoalRequestIDAndResponseContract() {
+        let requestID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+        let profile = AgentQueueAgentProfile(
+            id: "planner",
+            additionalSkills: [
+                AgentQueueSkillSelection(
+                    name: "product-director",
+                    sourcePath: "/tmp/product-director/SKILL.md"
+                ),
+            ],
+            rolePrompt: "Break goals into executable queue work."
+        )
+
+        let text = AgentQueueInstructionBuilder.plannerRequest(
+            goal: "Implement search.\nCover errors.",
+            requestID: requestID,
+            profile: profile
+        )
+
+        XCTAssertTrue(text.hasPrefix("$cmux-agent-queue-planner $product-director\n\n"))
+        XCTAssertTrue(text.contains("[AGENT_QUEUE_ROLE_START]"))
+        XCTAssertTrue(text.contains("[AGENT_QUEUE_PLAN_REQUEST]"))
+        XCTAssertTrue(text.contains("request_id: 11111111-2222-3333-4444-555555555555"))
+        XCTAssertTrue(text.contains("Implement search.\nCover errors."))
+        XCTAssertTrue(text.contains("[AGENT_QUEUE_TASKS]"))
+        XCTAssertTrue(
+            text.contains("\"request_id\":\"11111111-2222-3333-4444-555555555555\"")
+        )
+        XCTAssertFalse(text.contains("[/AGENT_QUEUE_ROLE]"))
+    }
 }
 
 private extension AgentTask {
