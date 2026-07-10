@@ -36,7 +36,9 @@ final class AgentQueueController: ObservableObject {
         skillCatalog: AgentQueueSkillCatalog? = nil,
         skillRootDirectory: String? = nil,
         pollInterval: Duration = .seconds(1),
-        skillSourceExists: @escaping @Sendable (String) -> Bool = AgentQueueSkillPath.exists,
+        skillSourceExists: @escaping @Sendable (String) -> Bool = { path in
+            AgentQueueSkillPath.exists(path)
+        },
         sleep: @escaping @Sendable (Duration) async throws -> Void = { duration in
             try await Task.sleep(for: duration)
         },
@@ -219,6 +221,51 @@ final class AgentQueueController: ObservableObject {
             }
             pendingRoleSkillChanges = []
 
+            var preparation = state.preparation ?? AgentQueuePreparationState(
+                configuration: configuration,
+                phase: .checkingSkills,
+                completedWorkerCount: 0,
+                errorMessage: nil
+            )
+            preparation.desiredRoleSkillFingerprints = try await roleSkillFingerprints(
+                preserving: preparation.desiredRoleSkillFingerprints
+            )
+
+            var missingSkillAgentIDs: Set<String> = []
+            for agentID in configuration.activeAgentIDs {
+                guard let profile = configuration.profile(id: agentID),
+                      let missingSkill = profile.additionalSkills.first(where: {
+                          !skillSourceExists($0.sourcePath)
+                      }) else {
+                    continue
+                }
+                missingSkillAgentIDs.insert(agentID)
+                var record = preparation.record(agentID: agentID) ??
+                    preparationRecord(agentID: agentID)
+                record.phase = .failed
+                record.errorMessage = missingSkillErrorMessage(path: missingSkill.sourcePath)
+                preparation = preparation.replacingRecord(record)
+            }
+
+            var agentIDsToPrepare: Set<String> = []
+            for agentID in configuration.activeAgentIDs where !missingSkillAgentIDs.contains(agentID) {
+                if await requiresPreparation(agentID: agentID, preparation: preparation) {
+                    agentIDsToPrepare.insert(agentID)
+                }
+            }
+            state.preparation = preparation
+
+            let requiresWorkerReconciliation = workerSlotsRequireReconciliation(configuration: configuration)
+            guard !agentIDsToPrepare.isEmpty || requiresWorkerReconciliation else {
+                finalizePreparationState()
+                if state.preparation?.phase == .failed {
+                    state.queue.status = .paused
+                }
+                state.queue.updatedAt = now()
+                persistSoon()
+                return
+            }
+
             guard let workerPreparer else {
                 throw AgentQueuePreparationError.plannerUnavailable
             }
@@ -234,7 +281,7 @@ final class AgentQueueController: ObservableObject {
                     AgentQueueWorkerSlot(agentID: $0.id, surfaceID: $0.surfaceID)
                 },
                 activeWorkerAgentIDs: activeWorkerAgentIDs,
-                agentIDsToPrepare: Set(configuration.activeAgentIDs),
+                agentIDsToPrepare: agentIDsToPrepare,
                 progress: { [weak self] progress in
                     self?.updatePreparation(
                         configuration: configuration,
@@ -249,19 +296,49 @@ final class AgentQueueController: ObservableObject {
             }
 
             registerPreparedWorkers(prepared.workerSlots)
-            let completedWorkerCount = prepared.preparedAgents.filter {
-                $0.agentID != AgentQueueAgentID.planner
-            }.count
-            let preparationFailed = !prepared.failures.isEmpty
-            updatePreparation(
-                configuration: configuration,
-                phase: preparationFailed ? .failed : .ready,
-                completedWorkerCount: completedWorkerCount,
-                errorMessage: preparationFailed
-                    ? prepared.failures.map(\.message).joined(separator: "\n")
-                    : nil
-            )
-            if preparationFailed {
+            preparation = state.preparation ?? preparation
+            let preparedAgentIDs = Set(prepared.preparedAgents.map(\.agentID))
+            let failedAgentIDs = Set(prepared.failures.map(\.agentID))
+
+            for preparedAgent in prepared.preparedAgents {
+                guard let profile = configuration.profile(id: preparedAgent.agentID),
+                      let roleFingerprint = roleFingerprint(
+                          agentID: preparedAgent.agentID,
+                          in: preparation.desiredRoleSkillFingerprints
+                      ) else {
+                    continue
+                }
+                preparation = preparation.replacingRecord(
+                    AgentQueueAgentPreparationRecord(
+                        agentID: preparedAgent.agentID,
+                        surfaceID: preparedAgent.surfaceID,
+                        appliedProfileFingerprint: AgentQueueProfileFingerprint.make(profile),
+                        appliedRoleSkillFingerprint: roleFingerprint,
+                        phase: .ready,
+                        errorMessage: nil
+                    )
+                )
+            }
+
+            for failure in prepared.failures {
+                var record = preparation.record(agentID: failure.agentID) ??
+                    preparationRecord(agentID: failure.agentID, surfaceID: failure.surfaceID)
+                record.surfaceID = failure.surfaceID ?? record.surfaceID
+                record.phase = .failed
+                record.errorMessage = failure.message
+                preparation = preparation.replacingRecord(record)
+            }
+
+            for agentID in agentIDsToPrepare
+            where !preparedAgentIDs.contains(agentID) && !failedAgentIDs.contains(agentID) {
+                var record = preparation.record(agentID: agentID) ?? preparationRecord(agentID: agentID)
+                record.phase = .failed
+                record.errorMessage = missingPreparationResultMessage(agentID: agentID)
+                preparation = preparation.replacingRecord(record)
+            }
+            state.preparation = preparation
+            finalizePreparationState()
+            if state.preparation?.phase == .failed {
                 state.queue.status = .paused
             }
             state.queue.updatedAt = now()
@@ -282,10 +359,27 @@ final class AgentQueueController: ObservableObject {
     func restorePersistedState() async {
         guard let store else { return }
         let workspaceID = state.queue.workspaceID
-        guard var restored = try? await store.load(workspaceID: workspaceID),
-              restored.queue.workspaceID == workspaceID else {
+        let loaded: AgentQueueState?
+        do {
+            loaded = try await store.load(workspaceID: workspaceID)
+        } catch {
+            var preparation = state.preparation ?? AgentQueuePreparationState(
+                configuration: .defaultConfiguration,
+                phase: .failed,
+                completedWorkerCount: 0,
+                errorMessage: nil
+            )
+            preparation.phase = .failed
+            preparation.completedWorkerCount = 0
+            preparation.errorMessage = restorationErrorMessage(error)
+            state.preparation = preparation
+            state.queue.status = .paused
+            state.queue.updatedAt = now()
+            pendingRoleSkillChanges = []
             return
         }
+        guard var restored = loaded,
+              restored.queue.workspaceID == workspaceID else { return }
 
         let plannerAvailable = await isAvailableTerminal(restored.queue.plannerSurfaceID)
         var availableWorkers: [AgentWorker] = []
@@ -300,16 +394,69 @@ final class AgentQueueController: ObservableObject {
         restored.queue.status = .paused
 
         if var preparation = restored.preparation {
-            let hasConfiguredWorkers = availableWorkers.count == preparation.configuration.workerCount
-            if !plannerAvailable || !hasConfiguredWorkers || preparation.phase != .ready {
-                preparation.phase = .notPrepared
+            do {
+                preparation.desiredRoleSkillFingerprints = try await roleSkillFingerprints(
+                    preserving: preparation.desiredRoleSkillFingerprints
+                )
+            } catch {
+                preparation.phase = .failed
                 preparation.completedWorkerCount = 0
-                preparation.errorMessage = nil
+                preparation.errorMessage = preparationErrorMessage(error)
+                restored.preparation = preparation
+                state = restored
+                pendingRoleSkillChanges = []
+                nextSequence = restored.tasks.count + 1
+                return
+            }
+
+            for agentID in preparation.configuration.activeAgentIDs {
+                let expectedSurfaceID: UUID? = if agentID == AgentQueueAgentID.planner {
+                    plannerAvailable ? restored.queue.plannerSurfaceID : nil
+                } else {
+                    availableWorkers.first(where: { $0.id == agentID })?.surfaceID
+                }
+                var record = preparation.record(agentID: agentID) ??
+                    AgentQueueAgentPreparationRecord(
+                        agentID: agentID,
+                        surfaceID: expectedSurfaceID,
+                        appliedProfileFingerprint: nil,
+                        appliedRoleSkillFingerprint: nil,
+                        phase: .notPrepared,
+                        errorMessage: nil
+                    )
+
+                if let profile = preparation.configuration.profile(id: agentID),
+                   let missingSkill = profile.additionalSkills.first(where: {
+                       !skillSourceExists($0.sourcePath)
+                   }) {
+                    record.surfaceID = expectedSurfaceID
+                    record.phase = .failed
+                    record.errorMessage = missingSkillErrorMessage(path: missingSkill.sourcePath)
+                    preparation = preparation.replacingRecord(record)
+                    continue
+                }
+
+                let evidenceMatches = expectedSurfaceID != nil &&
+                    record.phase == .ready &&
+                    record.surfaceID == expectedSurfaceID &&
+                    preparation.isReady(agentID: agentID)
+                let liveReady = if let expectedSurfaceID, evidenceMatches {
+                    await paneAdapter.codexReadiness(surfaceID: expectedSurfaceID) == .idle
+                } else {
+                    false
+                }
+                if !evidenceMatches || !liveReady {
+                    record.surfaceID = expectedSurfaceID
+                    record.phase = .notPrepared
+                    record.errorMessage = nil
+                }
+                preparation = preparation.replacingRecord(record)
             }
             restored.preparation = preparation
         }
 
         state = restored
+        finalizePreparationState()
         pendingRoleSkillChanges = []
         nextSequence = restored.tasks.count + 1
         persistSoon()
@@ -627,18 +774,144 @@ final class AgentQueueController: ObservableObject {
         persistSoon()
     }
 
+    private func roleSkillFingerprints(
+        preserving existing: [String: String]
+    ) async throws -> [String: String] {
+        guard let roleSkillInstaller else { return existing }
+        do {
+            return [
+                AgentQueueRoleSkill.planner.rawValue: try await roleSkillInstaller.fingerprint(
+                    for: .planner
+                ),
+                AgentQueueRoleSkill.worker.rawValue: try await roleSkillInstaller.fingerprint(
+                    for: .worker
+                ),
+            ]
+        } catch {
+            throw AgentQueuePreparationError.skillInstallationFailed(error.localizedDescription)
+        }
+    }
+
+    private func roleFingerprint(
+        agentID: String,
+        in fingerprints: [String: String]
+    ) -> String? {
+        let role = agentID == AgentQueueAgentID.planner
+            ? AgentQueueRoleSkill.planner
+            : AgentQueueRoleSkill.worker
+        return fingerprints[role.rawValue]
+    }
+
+    private func expectedSurfaceID(agentID: String) -> UUID? {
+        if agentID == AgentQueueAgentID.planner {
+            return state.queue.plannerSurfaceID
+        }
+        return state.workers.first(where: { $0.id == agentID })?.surfaceID
+    }
+
+    private func preparationRecord(
+        agentID: String,
+        surfaceID: UUID? = nil
+    ) -> AgentQueueAgentPreparationRecord {
+        AgentQueueAgentPreparationRecord(
+            agentID: agentID,
+            surfaceID: surfaceID ?? expectedSurfaceID(agentID: agentID),
+            appliedProfileFingerprint: nil,
+            appliedRoleSkillFingerprint: nil,
+            phase: .notPrepared,
+            errorMessage: nil
+        )
+    }
+
+    private func requiresPreparation(
+        agentID: String,
+        preparation: AgentQueuePreparationState
+    ) async -> Bool {
+        guard preparation.isReady(agentID: agentID),
+              let expectedSurfaceID = expectedSurfaceID(agentID: agentID),
+              preparation.record(agentID: agentID)?.surfaceID == expectedSurfaceID else {
+            return true
+        }
+        return await paneAdapter.codexReadiness(surfaceID: expectedSurfaceID) != .idle
+    }
+
+    private func workerSlotsRequireReconciliation(
+        configuration: AgentQueuePreparationConfiguration
+    ) -> Bool {
+        let desiredIDs = Array(AgentQueueAgentID.workerIDs.prefix(configuration.workerCount))
+        return state.workers.map(\.id) != desiredIDs
+    }
+
+    private func finalizePreparationState() {
+        guard var preparation = state.preparation else { return }
+        let activeRecords = preparation.configuration.activeAgentIDs.compactMap {
+            preparation.record(agentID: $0)
+        }
+        let failures = activeRecords.filter { $0.phase == .failed }
+        preparation.completedWorkerCount = AgentQueueAgentID.workerIDs
+            .prefix(preparation.configuration.workerCount)
+            .filter { preparation.isReady(agentID: $0) }
+            .count
+        if !failures.isEmpty {
+            preparation.phase = .failed
+            preparation.errorMessage = failures.compactMap(\.errorMessage).joined(separator: "\n")
+        } else if preparation.dirtyAgentIDs().isEmpty {
+            preparation.phase = .ready
+            preparation.errorMessage = nil
+        } else {
+            preparation.phase = .notPrepared
+            preparation.errorMessage = nil
+        }
+        state.preparation = preparation
+    }
+
+    private func missingSkillErrorMessage(path: String) -> String {
+        String(
+            format: String(
+                localized: "agentQueue.profile.missingSkillFormat",
+                defaultValue: "스킬을 찾을 수 없음: %@"
+            ),
+            path
+        )
+    }
+
+    private func missingPreparationResultMessage(agentID: String) -> String {
+        String(
+            format: String(
+                localized: "agentQueue.preparation.error.missingAgentResult",
+                defaultValue: "Agent 준비 결과가 없습니다: %@"
+            ),
+            agentID
+        )
+    }
+
+    private func restorationErrorMessage(_ error: Error) -> String {
+        String(
+            format: String(
+                localized: "agentQueue.preparation.error.restoration",
+                defaultValue: "Agent Queue 상태를 복원하지 못했습니다: %@"
+            ),
+            error.localizedDescription
+        )
+    }
+
     private func updatePreparation(
         configuration: AgentQueuePreparationConfiguration,
         phase: AgentQueuePreparationPhase,
         completedWorkerCount: Int,
         errorMessage: String?
     ) {
-        state.preparation = AgentQueuePreparationState(
+        var preparation = state.preparation ?? AgentQueuePreparationState(
             configuration: configuration,
             phase: phase,
             completedWorkerCount: completedWorkerCount,
             errorMessage: errorMessage
         )
+        preparation.configuration = configuration
+        preparation.phase = phase
+        preparation.completedWorkerCount = completedWorkerCount
+        preparation.errorMessage = errorMessage
+        state.preparation = preparation
     }
 
     private func registerPreparedWorkers(_ slots: [AgentQueueWorkerSlot]) {
@@ -651,6 +924,7 @@ final class AgentQueueController: ObservableObject {
                 existing.paneID = slot.surfaceID
                 existing.surfaceID = slot.surfaceID
                 existing.label = Self.workerLabel(index: index)
+                existing.enabled = true
                 existing.lastSeenAt = currentNow
                 return existing
             }
