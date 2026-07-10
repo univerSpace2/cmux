@@ -44,6 +44,7 @@ enum AgentQueueLogEventType: String, Codable, Equatable, Sendable {
     case enterSubmitted = "enter_submitted"
     case reportDetected = "report_detected"
     case wrongPaneReportDetected = "wrong_pane_report_detected"
+    case ignoredReport = "ignored_report"
     case reportForwarded = "report_forwarded"
     case timeout
     case recoverySent = "recovery_sent"

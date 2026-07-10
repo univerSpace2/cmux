@@ -11,6 +11,7 @@ enum AgentQueueInputEvent: Equatable, Sendable {
         message: String
     )
     case reportDetected(AgentQueueDetectedReport)
+    case ignoredReport(surfaceID: UUID, excerpt: String, reason: String)
     case timeout(taskID: String)
     case recoverySent(taskID: String)
     case taskCancelled(taskID: String)
@@ -19,7 +20,6 @@ enum AgentQueueInputEvent: Equatable, Sendable {
 enum AgentQueueSideEffect: Equatable, Sendable {
     case dispatch(taskID: String, workerID: String)
     case forwardReport(taskID: String, fromSurfaceID: UUID, excerpt: String)
-    case sendCorrection(taskID: String, workerID: String)
     case sendRecovery(taskID: String, workerID: String)
     case persist
 }
@@ -102,14 +102,14 @@ enum AgentQueueCore {
                         excerpt: report.excerpt
                     )
                 )
-                if let worker = state.workers.first(where: { $0.currentTaskID == report.taskID }) {
-                    effects.append(.sendCorrection(taskID: report.taskID, workerID: worker.id))
-                }
             }
             releaseWorker(forTaskID: report.taskID, in: &state, status: .idle)
             if state.queue.status == .running {
                 effects.append(contentsOf: scheduleNextTasks(state: &state, now: now))
             }
+
+        case .ignoredReport:
+            break
 
         case let .timeout(taskID):
             guard let taskIndex = state.tasks.firstIndex(where: { $0.id == taskID }) else {
@@ -245,6 +245,24 @@ enum AgentQueueCore {
             state.queue.updatedAt = now
             return
 
+        case let .ignoredReport(surfaceID, excerpt, reason):
+            appendEvent(
+                type: .ignoredReport,
+                taskID: nil,
+                workerID: nil,
+                evidence: AgentQueueLogEvidence(
+                    workspaceID: state.queue.workspaceID,
+                    paneID: nil,
+                    surfaceID: surfaceID,
+                    command: reason,
+                    screenExcerpt: excerpt
+                ),
+                state: &state,
+                now: now
+            )
+            state.queue.updatedAt = now
+            return
+
         default:
             break
         }
@@ -263,6 +281,8 @@ enum AgentQueueCore {
         case let .reportDetected(report):
             logType = report.location == .wrongPane ? .wrongPaneReportDetected : .reportDetected
             taskID = report.taskID
+        case .ignoredReport:
+            return
         case let .timeout(id):
             logType = .timeout
             taskID = id

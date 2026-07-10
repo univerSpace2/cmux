@@ -22,6 +22,7 @@ struct AgentQueueDetectedReport: Equatable, Sendable {
 
 enum AgentQueueReportDetector {
     private static let taskPattern = #"(?m)(완료 보고|자동 복구 보고|복구 요청 응답)?\s*\[(T-\d{8}-\d{4})\][^\n]*(?:\n[^\n]*){0,8}"#
+    private static let validTaskIDPattern = #"\[T-\d{8}-\d{4}\]"#
 
     static func detect(
         in text: String,
@@ -53,6 +54,23 @@ enum AgentQueueReportDetector {
                 surfaceID: surfaceID,
                 excerpt: excerpt
             )
+        }
+    }
+
+    static func detectMalformedCompletionLines(in text: String) -> [String] {
+        guard let validTaskIDRegex = try? NSRegularExpression(pattern: validTaskIDPattern) else {
+            return []
+        }
+
+        var seen: Set<String> = []
+        return text.components(separatedBy: .newlines).compactMap { rawLine in
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard line.contains("완료 보고"), !line.isEmpty else { return nil }
+
+            let range = NSRange(line.startIndex..<line.endIndex, in: line)
+            guard validTaskIDRegex.firstMatch(in: line, range: range) == nil else { return nil }
+            guard seen.insert(line).inserted else { return nil }
+            return line
         }
     }
 
