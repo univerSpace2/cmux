@@ -3395,6 +3395,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             ("set-find", ["right-sidebar", "set", "find"], "right_sidebar set find", "OK", ""),
             ("set-no-focus", ["right-sidebar", "set", "vault", "--no-focus"], "right_sidebar set vault --no-focus", "OK", ""),
             ("set-sessions", ["right-sidebar", "set", "sessions"], "right_sidebar set sessions", "OK", ""),
+            ("set-agent-queue", ["right-sidebar", "set", "agent-queue", "--no-focus"], "right_sidebar set agent-queue --no-focus", "OK", ""),
             ("files-alias", ["right-sidebar", "files"], "right_sidebar set files", "OK", ""),
             ("find-alias", ["right-sidebar", "find"], "right_sidebar set find", "OK", ""),
             ("vault-alias", ["right-sidebar", "vault"], "right_sidebar set vault", "OK", ""),
@@ -3436,6 +3437,20 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertTrue(result.stderr.isEmpty, "\(item.name): \(result.stderr)")
             XCTAssertEqual(state.commands, [item.expectedCommand], item.name)
         }
+    }
+
+    func testRightSidebarCLIHelpAdvertisesAgentQueueMode() throws {
+        let result = runProcess(
+            executablePath: try bundledCLIPath(),
+            arguments: ["right-sidebar", "--help"],
+            environment: ["CMUX_CLI_SENTRY_DISABLED": "1"],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("agent-queue"), result.stdout)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
     }
 
     func testRightSidebarInvalidCommandValidatesBeforeTargetResolution() throws {
