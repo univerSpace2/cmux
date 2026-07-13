@@ -1,3 +1,4 @@
+import Testing
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -5,6 +6,47 @@ import XCTest
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@MainActor
+@Suite("Agent Queue planner response recovery")
+struct AgentQueuePlannerResponseRecoveryTests {
+    @Test
+    func malformedQuotedCommandRequestsOneCorrectionThenImportsCorrectedBlock() async throws {
+        let fixture = AgentQueueControllerFixture()
+        #expect(await fixture.controller.requestPlan(for: "Update documentation"))
+        let requestID = try #require(fixture.controller.state.planningRequest?.requestID)
+        #expect(fixture.adapter.submittedTexts.count == 1)
+
+        fixture.adapter.textBySurface[fixture.plannerSurfaceID] = """
+        [AGENT_QUEUE_TASKS]
+        {"space_encoding":"unicode_escape","request_id":"\(requestID.uuidString.lowercased())","tasks":[{"title":"Q00\\u0020문서\\u0020갱신","body":"검증:\\u0020rtk\\u0020rg\\u0020-n\\u0020"pattern"\\u0020file"}]}
+        [/AGENT_QUEUE_TASKS]
+        """
+
+        await fixture.controller.pollReportsOnce(now: fixture.now)
+
+        #expect(fixture.controller.state.planningRequest?.phase == .waitingForPlanner)
+        #expect(fixture.adapter.submittedTexts.count == 2)
+        let correction = try #require(fixture.adapter.submittedTexts.last?.text)
+        #expect(correction.contains(requestID.uuidString.lowercased()))
+        #expect(correction.contains("\\u0022"))
+
+        await fixture.controller.pollReportsOnce(now: fixture.now.addingTimeInterval(1))
+        #expect(fixture.adapter.submittedTexts.count == 2)
+
+        fixture.adapter.textBySurface[fixture.plannerSurfaceID] = """
+        [AGENT_QUEUE_TASKS]
+        {"space_encoding":"unicode_escape","request_id":"\(requestID.uuidString.lowercased())","tasks":[{"title":"Q00\\u0020문서\\u0020갱신","body":"검증:\\u0020rtk\\u0020rg\\u0020-n\\u0020\\u0022pattern\\u0022\\u0020file"}]}
+        [/AGENT_QUEUE_TASKS]
+        """
+
+        await fixture.controller.pollReportsOnce(now: fixture.now.addingTimeInterval(2))
+
+        #expect(fixture.controller.state.planningRequest == nil)
+        #expect(fixture.controller.state.tasks.map(\.title) == ["Q00 문서 갱신"])
+        #expect(fixture.controller.state.tasks.map(\.body) == ["검증: rtk rg -n \"pattern\" file"])
+    }
+}
 
 @MainActor
 final class AgentQueueControllerTests: XCTestCase {
