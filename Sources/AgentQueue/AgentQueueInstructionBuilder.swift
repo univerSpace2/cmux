@@ -54,12 +54,35 @@ enum AgentQueueInstructionBuilder {
         \(goal)
         [/AGENT_QUEUE_PLAN_REQUEST]
 
-        설명이나 Markdown 코드 펜스 없이 다음 형식만 출력하세요.
-        title과 body 안의 모든 일반 공백(U+0020)은 반드시 JSON의 \\u0020 이스케이프로 표현하세요.
-        [AGENT_QUEUE_TASKS]
-        {"space_encoding":"unicode_escape","request_id":"\(id)","tasks":[{"title":"작업\\u0020제목","body":"구체적인\\u0020작업\\u0020지시"}]}
-        마지막 줄은 같은 이름 앞에 /를 붙인 종료 표식으로 닫으세요.
+        \(plannerResponseContract(requestID: id))
         """
         return plannerInstruction(instruction, profile: profile)
+    }
+
+    static func plannerJSONCorrectionRequest(requestID: UUID) -> String {
+        let id = requestID.uuidString.lowercased()
+        return """
+        이전 [AGENT_QUEUE_TASKS] 응답이 strict JSON 파싱에 실패했습니다.
+        설명이나 사과 없이 동일한 request_id와 전체 tasks를 사용해 블록 전체를 한 번만 다시 출력하세요.
+
+        \(plannerResponseContract(requestID: id))
+        """
+    }
+
+    private static func plannerResponseContract(requestID: String) -> String {
+        """
+        설명이나 Markdown 코드 펜스 없이 다음 형식만 출력하세요.
+        출력은 RFC 8259에 맞는 유효한 JSON이어야 합니다.
+        title과 body 값 내부에서는 다음 문자를 반드시 JSON 이스케이프로 표현하세요:
+        - 일반 공백(U+0020): \\u0020
+        - 큰따옴표(U+0022): \\u0022
+        - 역슬래시(U+005C): \\u005c
+        - 줄바꿈: \\n
+        JSON 문법을 구성하는 큰따옴표 외에는 raw 큰따옴표를 title과 body에 넣지 마세요.
+        출력 직전 전체 JSON을 strict parser로 검증하고, 실패하면 고친 뒤 출력하세요.
+        [AGENT_QUEUE_TASKS]
+        {"space_encoding":"unicode_escape","request_id":"\(requestID)","tasks":[{"title":"작업\\u0020제목","body":"검증:\\u0020rtk\\u0020rg\\u0020-n\\u0020\\u0022pattern\\u0022\\u0020file"}]}
+        마지막 줄은 같은 이름 앞에 /를 붙인 종료 표식으로 닫으세요.
+        """
     }
 }

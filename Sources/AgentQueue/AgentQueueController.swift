@@ -20,6 +20,9 @@ final class AgentQueueController: ObservableObject {
     private var monitoringTask: Task<Void, Never>?
     private var reportFingerprintOrder: [ReportFingerprint] = []
     private var reportFingerprints: Set<ReportFingerprint> = []
+    private var plannerResponseFingerprintOrder: [String] = []
+    private var plannerResponseFingerprints: Set<String> = []
+    private var plannerCorrectionRequestID: UUID?
 
     private struct ReportFingerprint: Hashable {
         var taskID: String
@@ -544,6 +547,7 @@ final class AgentQueueController: ObservableObject {
 
         let requestID = UUID()
         let createdAt = now()
+        plannerCorrectionRequestID = nil
         state.planningRequest = AgentQueuePlanningRequest(
             requestID: requestID,
             goal: normalizedGoal,
@@ -651,7 +655,7 @@ final class AgentQueueController: ObservableObject {
                 continue
             }
             if surfaceID == state.queue.plannerSurfaceID {
-                importPlannerTasks(from: snapshot.text)
+                await importPlannerTasks(from: snapshot.text)
             }
             let reports = AgentQueueReportDetector.detect(
                 in: snapshot.text,
@@ -1125,8 +1129,8 @@ final class AgentQueueController: ObservableObject {
         }
     }
 
-    private func importPlannerTasks(from text: String) {
-        guard var request = state.planningRequest,
+    private func importPlannerTasks(from text: String) async {
+        guard let request = state.planningRequest,
               request.phase == .waitingForPlanner,
               let detection = AgentQueuePlanDetector.detect(in: text) else {
             return
@@ -1171,16 +1175,67 @@ final class AgentQueueController: ObservableObject {
                 )
             })
             state.planningRequest = nil
+            plannerCorrectionRequestID = nil
             state.queue.updatedAt = currentNow
             persistSoon()
 
         case .failure(let error):
-            request.phase = .failed
-            request.errorMessage = planningResponseErrorMessage(error)
-            state.planningRequest = request
-            state.queue.updatedAt = now()
-            persistSoon()
+            await recoverPlannerResponseIfPossible(from: text, request: request, error: error)
         }
+    }
+
+    private func recoverPlannerResponseIfPossible(
+        from text: String,
+        request: AgentQueuePlanningRequest,
+        error: AgentQueuePlanDetectionError
+    ) async {
+        guard error == .malformedJSON,
+              let fingerprint = AgentQueuePlanDetector.normalizedLatestPayload(in: text) else {
+            failPlannerResponse(requestID: request.requestID, error: error)
+            return
+        }
+
+        let requestIDText = request.requestID.uuidString.lowercased()
+        if fingerprint.contains("\"request_id\"") &&
+            !fingerprint.localizedCaseInsensitiveContains(requestIDText) {
+            return
+        }
+        guard fingerprint.localizedCaseInsensitiveContains(requestIDText),
+              fingerprint.contains("\"tasks\"") else {
+            failPlannerResponse(requestID: request.requestID, error: error)
+            return
+        }
+        guard rememberPlannerResponseFingerprint(fingerprint) else { return }
+        guard plannerCorrectionRequestID != request.requestID else {
+            failPlannerResponse(requestID: request.requestID, error: error)
+            return
+        }
+
+        plannerCorrectionRequestID = request.requestID
+        let correction = AgentQueueInstructionBuilder.plannerJSONCorrectionRequest(
+            requestID: request.requestID
+        )
+        do {
+            _ = try await paneAdapter.submitText(correction, to: state.queue.plannerSurfaceID)
+        } catch {
+            failPlannerResponse(requestID: request.requestID, error: .malformedJSON)
+        }
+    }
+
+    private func failPlannerResponse(
+        requestID: UUID,
+        error: AgentQueuePlanDetectionError
+    ) {
+        guard var request = state.planningRequest,
+              request.requestID == requestID,
+              request.phase == .waitingForPlanner else {
+            return
+        }
+        request.phase = .failed
+        request.errorMessage = planningResponseErrorMessage(error)
+        state.planningRequest = request
+        state.queue.updatedAt = now()
+        persistSoon()
     }
 
     private func planningSubmissionErrorMessage(_ error: Error) -> String {
@@ -1215,6 +1270,17 @@ final class AgentQueueController: ObservableObject {
         if reportFingerprintOrder.count > 512 {
             let evicted = reportFingerprintOrder.removeFirst()
             reportFingerprints.remove(evicted)
+        }
+        return true
+    }
+
+    private func rememberPlannerResponseFingerprint(_ fingerprint: String) -> Bool {
+        guard plannerResponseFingerprints.insert(fingerprint).inserted else { return false }
+
+        plannerResponseFingerprintOrder.append(fingerprint)
+        if plannerResponseFingerprintOrder.count > 64 {
+            let evicted = plannerResponseFingerprintOrder.removeFirst()
+            plannerResponseFingerprints.remove(evicted)
         }
         return true
     }

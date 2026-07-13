@@ -7,19 +7,7 @@ enum AgentQueuePlanDetector {
     static func detect(
         in text: String
     ) -> Result<AgentQueuePlannedTasks, AgentQueuePlanDetectionError>? {
-        guard
-            let closingRange = text.range(of: closingMarker, options: .backwards),
-            let openingRange = text.range(
-                of: openingMarker,
-                options: .backwards,
-                range: text.startIndex..<closingRange.lowerBound
-            )
-        else {
-            return nil
-        }
-
-        let payloadText = String(text[openingRange.upperBound..<closingRange.lowerBound])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let payloadText = latestPayloadText(in: text) else { return nil }
         guard let payload = decodePayload(from: payloadText) else {
             return .failure(.malformedJSON)
         }
@@ -43,6 +31,27 @@ enum AgentQueuePlanDetector {
             requestID: payload.requestID,
             tasks: tasks
         ))
+    }
+
+    static func normalizedLatestPayload(in text: String) -> String? {
+        guard let payloadText = latestPayloadText(in: text) else { return nil }
+        return joinTerminalWrappedLines(payloadText, restoringLegacyWordSpaces: false)
+    }
+
+    private static func latestPayloadText(in text: String) -> String? {
+        guard
+            let closingRange = text.range(of: closingMarker, options: .backwards),
+            let openingRange = text.range(
+                of: openingMarker,
+                options: .backwards,
+                range: text.startIndex..<closingRange.lowerBound
+            )
+        else {
+            return nil
+        }
+
+        return String(text[openingRange.upperBound..<closingRange.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func decodePayload(from text: String) -> Payload? {
