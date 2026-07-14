@@ -13,12 +13,21 @@ struct AgentQueueCLIInstructionBuilder: Sendable {
         return "\(ready)\n\(AgentQueueSkillPromptBuilder.prompt(role: skillRole, profile: profile))"
     }
 
-    func launchCommand(agentID: String, bindingID: String) -> String {
+    func launchCommand(
+        agentID: String,
+        bindingID: String,
+        initialPrompt: String? = nil
+    ) -> String {
         let escapedAgentID = shellSingleQuoted(agentID)
         let escapedBindingID = shellSingleQuoted(bindingID)
+        let codexCommand = if let initialPrompt {
+            "codex \(shellSingleQuoted(initialPrompt))"
+        } else {
+            "codex"
+        }
         return """
         cli="${CMUX_BUNDLED_CLI_PATH:-cmux}"
-        codex
+        \(codexCommand)
         status=$?
         "$cli" agent-queue agent offline --agent \(escapedAgentID) --binding \(escapedBindingID) >/dev/null 2>&1 || true
         exit "$status"

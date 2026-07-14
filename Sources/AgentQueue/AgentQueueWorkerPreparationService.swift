@@ -144,20 +144,21 @@ final class AgentQueueWorkerPreparationService: AgentQueueWorkerPreparing {
                 continue
             }
             do {
-                try await prepareBoundAgent(
+                let prompt = instructionBuilder.bootstrap(
+                    agentID: binding.agentID,
+                    role: binding.role,
+                    bindingID: binding.bindingID,
+                    profile: profile
+                )
+                let submittedAtLaunch = try await prepareBoundAgent(
                     agentID: binding.agentID,
                     bindingID: binding.bindingID,
-                    surfaceID: surfaceID
+                    surfaceID: surfaceID,
+                    initialPrompt: prompt
                 )
-                try await driver.submitText(
-                    instructionBuilder.bootstrap(
-                        agentID: binding.agentID,
-                        role: binding.role,
-                        bindingID: binding.bindingID,
-                        profile: profile
-                    ),
-                    to: surfaceID
-                )
+                if !submittedAtLaunch {
+                    try await driver.submitText(prompt, to: surfaceID)
+                }
             } catch {
                 failures.append(
                     AgentQueueAgentPreparationFailure(
@@ -174,25 +175,31 @@ final class AgentQueueWorkerPreparationService: AgentQueueWorkerPreparing {
     private func prepareBoundAgent(
         agentID: String,
         bindingID: String,
-        surfaceID: UUID
-    ) async throws {
+        surfaceID: UUID,
+        initialPrompt: String
+    ) async throws -> Bool {
         guard driver.isTerminalSurface(surfaceID) else {
             throw AgentQueuePaneAdapterError.surfaceNotTerminal(surfaceID)
         }
         switch await driver.codexReadiness(surfaceID: surfaceID) {
         case .idle:
-            return
+            return false
         case .busy, .starting:
             try await waitForIdle(surfaceID: surfaceID)
+            return false
         case .absent:
             if driver.shellActivity(surfaceID: surfaceID) != .promptIdle {
                 try await waitForShellPrompt(surfaceID: surfaceID)
             }
             try await driver.submitShellCommand(
-                instructionBuilder.launchCommand(agentID: agentID, bindingID: bindingID),
+                instructionBuilder.launchCommand(
+                    agentID: agentID,
+                    bindingID: bindingID,
+                    initialPrompt: initialPrompt
+                ),
                 to: surfaceID
             )
-            try await waitForIdle(surfaceID: surfaceID)
+            return true
         }
     }
 

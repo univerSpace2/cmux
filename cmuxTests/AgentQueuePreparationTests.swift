@@ -96,8 +96,12 @@ struct AgentQueuePreparationTests {
 
         #expect(failures.isEmpty)
         #expect(driver.shellCommands.count == 1)
+        #expect(driver.shellCommands[0].text.contains(
+            "codex 'cmux agent-queue agent ready --agent worker-1 --role worker --binding worker-binding"
+        ))
         #expect(driver.shellCommands[0].text.contains("agent offline"))
-        #expect(driver.prompts.count == 2)
+        #expect(driver.prompts.count == 1)
+        #expect(driver.prompts[0].surfaceID == planner)
         #expect(driver.prompts.allSatisfy { $0.text.hasPrefix("cmux agent-queue agent ready") })
     }
 
