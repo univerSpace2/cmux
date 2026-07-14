@@ -1,27 +1,32 @@
 import Foundation
 
 enum AgentQueueInputEvent: Equatable, Sendable {
+    case tasksEnqueued(tasks: [AgentTask], submission: AgentQueueSubmission)
+    case queuePaused(cause: String)
+    case queueResumed
+    case bindingsPrepared([AgentQueueAgentBinding])
+    case agentReady(bindingID: String)
+    case agentRemoved(agentID: String, bindingID: String?, cause: String)
+    case dispatchSubmitted(taskID: String, workerID: String, bindingID: String, queued: Bool)
+    case dispatchSubmissionFailed(taskID: String, workerID: String, bindingID: String, message: String)
+    case taskReported(AgentQueueTaskReport)
+    case recoverySubmitted(taskID: String, workerID: String, bindingID: String)
+    case recoverySubmissionFailed(taskID: String, workerID: String, bindingID: String, message: String)
+    case taskTimedOut(taskID: String, bindingID: String)
+    case taskCancelled(taskID: String)
+
+    // Temporary source-compatibility cases. The screen protocol callers are
+    // removed after the CLI coordinator is fully wired.
     case queueStarted
-    case queuePaused
-    case dispatchSubmitted(taskID: String, workerID: String, queued: Bool)
-    case dispatchSubmissionFailed(
-        taskID: String,
-        workerID: String,
-        stage: AgentQueueDispatchFailureStage,
-        message: String
-    )
     case reportDetected(AgentQueueDetectedReport)
     case ignoredReport(surfaceID: UUID, excerpt: String, reason: String)
     case timeout(taskID: String)
     case recoverySent(taskID: String)
-    case taskCancelled(taskID: String)
 }
 
 enum AgentQueueSideEffect: Equatable, Sendable {
-    case dispatch(taskID: String, workerID: String)
-    case forwardReport(taskID: String, fromSurfaceID: UUID, excerpt: String)
-    case sendRecovery(taskID: String, workerID: String)
-    case persist
+    case dispatch(taskID: String, workerID: String, bindingID: String)
+    case recover(taskID: String, workerID: String, bindingID: String)
 }
 
 struct AgentQueueReduceResult: Equatable, Sendable {
@@ -29,8 +34,8 @@ struct AgentQueueReduceResult: Equatable, Sendable {
     var effects: [AgentQueueSideEffect]
 }
 
-enum AgentQueueCore {
-    static func reduce(
+struct AgentQueueCore: Sendable {
+    func reduce(
         state: AgentQueueState,
         event: AgentQueueInputEvent,
         now: Date
@@ -39,270 +44,484 @@ enum AgentQueueCore {
         var effects: [AgentQueueSideEffect] = []
 
         switch event {
-        case .queueStarted:
-            state.queue.status = .running
-            state.queue.updatedAt = now
-            effects.append(contentsOf: scheduleNextTasks(state: &state, now: now))
+        case let .tasksEnqueued(tasks, submission):
+            state.tasks.append(contentsOf: tasks)
+            state.submissions.append(submission)
+            if state.queue.status == .running {
+                effects = scheduleNextTasks(state: &state, now: now)
+            }
 
         case .queuePaused:
             state.queue.status = .paused
-            state.queue.updatedAt = now
 
-        case let .dispatchSubmitted(taskID, workerID, _):
-            if let taskIndex = state.tasks.firstIndex(where: { $0.id == taskID }),
-               let workerIndex = state.workers.firstIndex(where: { $0.id == workerID }) {
-                state.tasks[taskIndex].status = .awaitingReport
-                state.tasks[taskIndex].dispatchedAt = now
-                state.tasks[taskIndex].dispatchAttemptCount += 1
-                state.tasks[taskIndex].assignedWorkerSurfaceID = state.workers[workerIndex].surfaceID
-                state.workers[workerIndex].status = .awaitingReport
-                state.workers[workerIndex].currentTaskID = taskID
+        case .queueResumed, .queueStarted:
+            state.queue.status = .running
+            effects = scheduleNextTasks(state: &state, now: now)
+
+        case let .bindingsPrepared(bindings):
+            applyPreparedBindings(bindings, to: &state)
+
+        case let .agentReady(bindingID):
+            markAgentReady(bindingID: bindingID, in: &state, now: now)
+            if state.queue.status == .running {
+                effects = scheduleNextTasks(state: &state, now: now)
             }
 
-        case let .dispatchSubmissionFailed(taskID, workerID, stage, message):
-            if let taskIndex = state.tasks.firstIndex(where: { $0.id == taskID }) {
-                state.tasks[taskIndex].status = stage == .text ? .failed : .blocked
-                state.tasks[taskIndex].lastError = message
+        case let .agentRemoved(agentID, bindingID, cause):
+            removeAgent(
+                agentID: agentID,
+                bindingID: bindingID,
+                cause: cause,
+                from: &state
+            )
+            if state.queue.status == .running {
+                effects = scheduleNextTasks(state: &state, now: now)
             }
-            if let workerIndex = state.workers.firstIndex(where: { $0.id == workerID }) {
-                state.workers[workerIndex].status = .offline
-                state.workers[workerIndex].currentTaskID = taskID
-            }
+
+        case let .dispatchSubmitted(taskID, workerID, bindingID, _):
+            guard let taskIndex = state.tasks.firstIndex(where: { $0.id == taskID }),
+                  let workerIndex = currentWorkerIndex(
+                    workerID: workerID,
+                    bindingID: bindingID,
+                    in: state
+                  ),
+                  state.tasks[taskIndex].status == .dispatching,
+                  state.workers[workerIndex].currentTaskID == taskID else { break }
+            state.tasks[taskIndex].status = .dispatched
+            state.tasks[taskIndex].dispatchedAt = now
+            state.tasks[taskIndex].dispatchAttemptCount += 1
+            state.tasks[taskIndex].assignedWorkerSurfaceID = state.workers[workerIndex].surfaceID
+            state.workers[workerIndex].status = .running
+            state.workers[workerIndex].lastSeenAt = now
+
+        case let .dispatchSubmissionFailed(taskID, workerID, bindingID, message):
+            blockTask(taskID: taskID, message: message, in: &state)
+            removeWorker(workerID: workerID, bindingID: bindingID, from: &state)
             state.queue.status = .paused
 
-        case let .reportDetected(report):
-            guard let taskIndex = state.tasks.firstIndex(where: { $0.id == report.taskID }) else {
-                break
-            }
-            if state.tasks[taskIndex].status == .completed {
-                break
-            }
-            if report.kind == .unmatched {
-                break
-            }
-            if report.kind == .running {
-                state.tasks[taskIndex].status = .awaitingReport
-                break
-            }
-            if report.kind == .blocked {
-                state.tasks[taskIndex].status = .blocked
-                state.tasks[taskIndex].lastError = report.excerpt
-                state.queue.status = .paused
-                releaseWorker(forTaskID: report.taskID, in: &state, status: .idle)
-                break
+        case let .taskReported(report):
+            effects = applyReport(report, to: &state, now: now)
+
+        case let .recoverySubmitted(taskID, workerID, bindingID):
+            guard let taskIndex = state.tasks.firstIndex(where: { $0.id == taskID }),
+                  let workerIndex = currentWorkerIndex(
+                    workerID: workerID,
+                    bindingID: bindingID,
+                    in: state
+                  ),
+                  state.tasks[taskIndex].status == .retrying,
+                  state.workers[workerIndex].currentTaskID == taskID else { break }
+            state.tasks[taskIndex].status = .dispatched
+            state.tasks[taskIndex].dispatchedAt = now
+            state.workers[workerIndex].status = .running
+            state.workers[workerIndex].lastSeenAt = now
+
+        case let .recoverySubmissionFailed(taskID, workerID, bindingID, message):
+            blockTask(taskID: taskID, message: message, in: &state)
+            removeWorker(workerID: workerID, bindingID: bindingID, from: &state)
+            state.queue.status = .paused
+
+        case let .taskTimedOut(taskID, bindingID):
+            guard let worker = state.workers.first(where: {
+                $0.currentTaskID == taskID && $0.bindingID == bindingID
+            }) else { break }
+            blockTask(taskID: taskID, message: "timeout", in: &state)
+            removeWorker(workerID: worker.id, bindingID: bindingID, from: &state)
+            state.queue.status = .paused
+
+        case let .taskCancelled(taskID):
+            guard let taskIndex = state.tasks.firstIndex(where: { $0.id == taskID }) else { break }
+            state.tasks[taskIndex].status = .cancelled
+            releaseWorker(forTaskID: taskID, in: &state)
+            if state.queue.status == .running {
+                effects = scheduleNextTasks(state: &state, now: now)
             }
 
-            state.tasks[taskIndex].status = .completed
-            state.tasks[taskIndex].completedAt = now
-            if report.location == .wrongPane {
-                effects.append(
-                    .forwardReport(
-                        taskID: report.taskID,
-                        fromSurfaceID: report.surfaceID,
-                        excerpt: report.excerpt
-                    )
-                )
-            }
-            releaseWorker(forTaskID: report.taskID, in: &state, status: .idle)
-            if state.queue.status == .running {
-                effects.append(contentsOf: scheduleNextTasks(state: &state, now: now))
-            }
+        case let .reportDetected(report):
+            effects = applyLegacyReport(report, to: &state, now: now)
 
         case .ignoredReport:
             break
 
         case let .timeout(taskID):
-            guard let taskIndex = state.tasks.firstIndex(where: { $0.id == taskID }) else {
+            guard let bindingID = state.workers.first(where: { $0.currentTaskID == taskID })?.bindingID else {
                 break
             }
-            if state.tasks[taskIndex].recoveryAttemptCount >= state.tasks[taskIndex].retryLimit {
-                state.tasks[taskIndex].status = .failed
-                state.tasks[taskIndex].lastError = "Timed out after \(state.tasks[taskIndex].retryLimit) recovery attempts."
-                state.queue.status = .paused
-                releaseWorker(forTaskID: taskID, in: &state, status: .idle)
-            } else if let worker = state.workers.first(where: { $0.currentTaskID == taskID }) {
-                state.tasks[taskIndex].status = .retrying
-                state.tasks[taskIndex].recoveryAttemptCount += 1
-                effects.append(.sendRecovery(taskID: taskID, workerID: worker.id))
-            }
+            return reduce(
+                state: state,
+                event: .taskTimedOut(taskID: taskID, bindingID: bindingID),
+                now: now
+            )
 
         case let .recoverySent(taskID):
-            if let taskIndex = state.tasks.firstIndex(where: { $0.id == taskID }) {
-                state.tasks[taskIndex].status = .awaitingReport
-            }
-
-        case let .taskCancelled(taskID):
-            if let taskIndex = state.tasks.firstIndex(where: { $0.id == taskID }) {
-                state.tasks[taskIndex].status = .cancelled
-                releaseWorker(forTaskID: taskID, in: &state, status: .idle)
-            }
+            guard let worker = state.workers.first(where: { $0.currentTaskID == taskID }),
+                  let bindingID = worker.bindingID else { break }
+            return reduce(
+                state: state,
+                event: .recoverySubmitted(
+                    taskID: taskID,
+                    workerID: worker.id,
+                    bindingID: bindingID
+                ),
+                now: now
+            )
         }
 
         appendEvents(for: event, state: &state, now: now)
+        state.queue.updatedAt = now
         return AgentQueueReduceResult(state: state, effects: effects)
     }
 
-    private static func scheduleNextTasks(state: inout AgentQueueState, now: Date) -> [AgentQueueSideEffect] {
-        guard state.queue.status == .running else {
+    static func reduce(
+        state: AgentQueueState,
+        event: AgentQueueInputEvent,
+        now: Date
+    ) -> AgentQueueReduceResult {
+        AgentQueueCore().reduce(state: state, event: event, now: now)
+    }
+
+    private func applyPreparedBindings(
+        _ bindings: [AgentQueueAgentBinding],
+        to state: inout AgentQueueState
+    ) {
+        for binding in bindings {
+            if binding.role == .planner {
+                state.bindings.removeAll { $0.role == .planner }
+            } else {
+                state.bindings.removeAll { $0.role == .worker && $0.agentID == binding.agentID }
+            }
+            state.bindings.append(binding)
+
+            guard binding.role == .worker,
+                  let workerIndex = state.workers.firstIndex(where: { $0.id == binding.agentID }) else {
+                continue
+            }
+            state.workers[workerIndex].bindingID = binding.bindingID
+            state.workers[workerIndex].status = .offline
+            state.workers[workerIndex].currentTaskID = nil
+        }
+    }
+
+    private func markAgentReady(
+        bindingID: String,
+        in state: inout AgentQueueState,
+        now: Date
+    ) {
+        guard let bindingIndex = state.bindings.firstIndex(where: { $0.bindingID == bindingID }) else {
+            return
+        }
+        state.bindings[bindingIndex].readiness = .ready
+        state.bindings[bindingIndex].readyAt = now
+        state.bindings[bindingIndex].lastSeenAt = now
+
+        let binding = state.bindings[bindingIndex]
+        guard binding.role == .worker,
+              let surfaceID = binding.surfaceID,
+              let workerIndex = state.workers.firstIndex(where: {
+                  $0.id == binding.agentID && $0.surfaceID == surfaceID
+              }) else { return }
+        state.workers[workerIndex].bindingID = bindingID
+        if state.workers[workerIndex].currentTaskID == nil {
+            state.workers[workerIndex].status = .idle
+        }
+        state.workers[workerIndex].lastSeenAt = now
+    }
+
+    private func removeAgent(
+        agentID: String,
+        bindingID: String?,
+        cause: String,
+        from state: inout AgentQueueState
+    ) {
+        guard let bindingIndex = state.bindings.firstIndex(where: {
+            $0.agentID == agentID && (bindingID == nil || $0.bindingID == bindingID)
+        }) else { return }
+
+        if state.bindings[bindingIndex].role == .planner {
+            state.bindings[bindingIndex].paneID = nil
+            state.bindings[bindingIndex].surfaceID = nil
+            state.bindings[bindingIndex].readiness = .notReady
+            state.bindings[bindingIndex].readyDeadline = nil
+            state.bindings[bindingIndex].readyAt = nil
+            state.queue.status = .paused
+            return
+        }
+
+        if let worker = state.workers.first(where: { $0.id == agentID }),
+           let taskID = worker.currentTaskID,
+           let taskIndex = state.tasks.firstIndex(where: { $0.id == taskID }),
+           !state.tasks[taskIndex].status.isTerminal {
+            state.tasks[taskIndex].status = .blocked
+            state.tasks[taskIndex].lastError = cause
+            state.queue.status = .paused
+        }
+        state.bindings.remove(at: bindingIndex)
+        state.workers.removeAll { $0.id == agentID }
+    }
+
+    private func applyReport(
+        _ report: AgentQueueTaskReport,
+        to state: inout AgentQueueState,
+        now: Date
+    ) -> [AgentQueueSideEffect] {
+        guard let taskIndex = state.tasks.firstIndex(where: { $0.id == report.taskID }),
+              !state.tasks[taskIndex].status.isTerminal,
+              let workerIndex = state.workers.firstIndex(where: {
+                  $0.currentTaskID == report.taskID && $0.bindingID == report.bindingID
+              }) else { return [] }
+
+        state.reports.append(report)
+        switch report.status {
+        case .completed:
+            state.tasks[taskIndex].status = .completed
+            state.tasks[taskIndex].completedAt = now
+            state.tasks[taskIndex].lastError = nil
+            releaseWorker(forTaskID: report.taskID, in: &state)
+            return scheduleNextTasks(state: &state, now: now)
+
+        case .failed:
+            if state.tasks[taskIndex].recoveryAttemptCount < state.tasks[taskIndex].retryLimit,
+               let bindingID = state.workers[workerIndex].bindingID {
+                state.tasks[taskIndex].status = .retrying
+                state.tasks[taskIndex].recoveryAttemptCount += 1
+                state.tasks[taskIndex].lastError = report.body
+                state.workers[workerIndex].status = .recovering
+                return [
+                    .recover(
+                        taskID: report.taskID,
+                        workerID: state.workers[workerIndex].id,
+                        bindingID: bindingID
+                    ),
+                ]
+            }
+            state.tasks[taskIndex].status = .failed
+            state.tasks[taskIndex].lastError = report.body
+            releaseWorker(forTaskID: report.taskID, in: &state)
+            state.queue.status = .paused
+            return []
+
+        case .blocked:
+            state.tasks[taskIndex].status = .blocked
+            state.tasks[taskIndex].lastError = report.body
+            releaseWorker(forTaskID: report.taskID, in: &state)
+            state.queue.status = .paused
+            return []
+        }
+    }
+
+    private func applyLegacyReport(
+        _ report: AgentQueueDetectedReport,
+        to state: inout AgentQueueState,
+        now: Date
+    ) -> [AgentQueueSideEffect] {
+        guard let worker = state.workers.first(where: { $0.currentTaskID == report.taskID }),
+              let bindingID = worker.bindingID else { return [] }
+        let status: AgentQueueReportStatus
+        switch report.kind {
+        case .completed:
+            status = .completed
+        case .blocked:
+            status = .blocked
+        case .running, .unmatched:
+            return []
+        }
+        return applyReport(
+            AgentQueueTaskReport(
+                reportID: "legacy-\(state.reports.count + 1)",
+                taskID: report.taskID,
+                status: status,
+                body: report.excerpt,
+                bindingID: bindingID,
+                attemptNumber: 1,
+                reportedAt: now
+            ),
+            to: &state,
+            now: now
+        )
+    }
+
+    private func scheduleNextTasks(
+        state: inout AgentQueueState,
+        now: Date
+    ) -> [AgentQueueSideEffect] {
+        guard state.queue.status == .running else { return [] }
+
+        let activeTaskIndices = state.tasks.indices.filter {
+            state.tasks[$0].status.isActive
+        }
+        if activeTaskIndices.contains(where: {
+            state.tasks[$0].executionMode == .sequential
+        }) {
             return []
         }
 
-        let activeTaskExists = state.tasks.contains {
-            [
-                AgentTaskStatus.dispatching,
-                .dispatched,
-                .awaitingReport,
-                .retrying,
-            ].contains($0.status)
-        }
-        guard !activeTaskExists else {
-            return []
-        }
-        let idleWorkerIndices = state.workers.indices.filter {
-            state.workers[$0].enabled && state.workers[$0].status == .idle
-        }
-        guard !idleWorkerIndices.isEmpty else {
-            return []
-        }
         guard let firstQueuedIndex = state.tasks.firstIndex(where: { $0.status == .queued }) else {
             return []
         }
+        if state.tasks[..<firstQueuedIndex].contains(where: {
+            !$0.status.isTerminal && $0.executionMode == .sequential
+        }) {
+            return []
+        }
+
+        let workerIndices = eligibleWorkerIndices(in: state)
+        guard !workerIndices.isEmpty else { return [] }
 
         if state.tasks[firstQueuedIndex].executionMode == .sequential {
-            let workerIndex = idleWorkerIndices[0]
-            let taskID = state.tasks[firstQueuedIndex].id
-            let workerID = state.workers[workerIndex].id
-            markAssigned(taskIndex: firstQueuedIndex, workerIndex: workerIndex, state: &state, now: now)
-            return [.dispatch(taskID: taskID, workerID: workerID)]
+            guard activeTaskIndices.isEmpty else { return [] }
+            let workerIndex = workerIndices[0]
+            return [assign(taskIndex: firstQueuedIndex, workerIndex: workerIndex, state: &state, now: now)]
         }
 
         var effects: [AgentQueueSideEffect] = []
         var workerCursor = 0
         var taskIndex = firstQueuedIndex
         while taskIndex < state.tasks.count,
-              workerCursor < idleWorkerIndices.count,
+              workerCursor < workerIndices.count,
               state.tasks[taskIndex].status == .queued,
               state.tasks[taskIndex].executionMode == .parallelAllowed {
-            let workerIndex = idleWorkerIndices[workerCursor]
-            let taskID = state.tasks[taskIndex].id
-            let workerID = state.workers[workerIndex].id
-            markAssigned(taskIndex: taskIndex, workerIndex: workerIndex, state: &state, now: now)
-            effects.append(.dispatch(taskID: taskID, workerID: workerID))
+            effects.append(
+                assign(
+                    taskIndex: taskIndex,
+                    workerIndex: workerIndices[workerCursor],
+                    state: &state,
+                    now: now
+                )
+            )
             workerCursor += 1
             taskIndex += 1
         }
         return effects
     }
 
-    private static func markAssigned(
+    private func eligibleWorkerIndices(in state: AgentQueueState) -> [Int] {
+        state.workers.indices.filter { index in
+            let worker = state.workers[index]
+            guard worker.enabled,
+                  worker.status == .idle,
+                  worker.currentTaskID == nil,
+                  let bindingID = worker.bindingID,
+                  let binding = state.bindings.first(where: { $0.bindingID == bindingID }) else {
+                return false
+            }
+            return binding.role == .worker
+                && binding.readiness == .ready
+                && binding.surfaceID == worker.surfaceID
+        }
+    }
+
+    private func assign(
         taskIndex: Int,
         workerIndex: Int,
         state: inout AgentQueueState,
         now: Date
-    ) {
+    ) -> AgentQueueSideEffect {
+        let bindingID = state.workers[workerIndex].bindingID!
         state.tasks[taskIndex].status = .dispatching
         state.workers[workerIndex].status = .assigned
         state.workers[workerIndex].currentTaskID = state.tasks[taskIndex].id
         state.workers[workerIndex].lastSeenAt = now
+        return .dispatch(
+            taskID: state.tasks[taskIndex].id,
+            workerID: state.workers[workerIndex].id,
+            bindingID: bindingID
+        )
     }
 
-    private static func releaseWorker(
-        forTaskID taskID: String,
-        in state: inout AgentQueueState,
-        status: AgentWorkerStatus
+    private func currentWorkerIndex(
+        workerID: String,
+        bindingID: String,
+        in state: AgentQueueState
+    ) -> Int? {
+        state.workers.firstIndex(where: {
+            $0.id == workerID && $0.bindingID == bindingID
+        })
+    }
+
+    private func blockTask(
+        taskID: String,
+        message: String,
+        in state: inout AgentQueueState
     ) {
+        guard let taskIndex = state.tasks.firstIndex(where: { $0.id == taskID }),
+              !state.tasks[taskIndex].status.isTerminal else { return }
+        state.tasks[taskIndex].status = .blocked
+        state.tasks[taskIndex].lastError = message
+    }
+
+    private func removeWorker(
+        workerID: String,
+        bindingID: String,
+        from state: inout AgentQueueState
+    ) {
+        guard state.workers.contains(where: {
+            $0.id == workerID && $0.bindingID == bindingID
+        }) else { return }
+        state.workers.removeAll { $0.id == workerID && $0.bindingID == bindingID }
+        state.bindings.removeAll { $0.agentID == workerID && $0.bindingID == bindingID }
+    }
+
+    private func releaseWorker(forTaskID taskID: String, in state: inout AgentQueueState) {
         guard let workerIndex = state.workers.firstIndex(where: { $0.currentTaskID == taskID }) else {
             return
         }
-        state.workers[workerIndex].status = status
+        state.workers[workerIndex].status = .idle
         state.workers[workerIndex].currentTaskID = nil
     }
 
-    private static func appendEvents(for event: AgentQueueInputEvent, state: inout AgentQueueState, now: Date) {
+    private func appendEvents(
+        for event: AgentQueueInputEvent,
+        state: inout AgentQueueState,
+        now: Date
+    ) {
         switch event {
-        case let .dispatchSubmitted(taskID, workerID, _):
-            appendEvent(type: .taskDispatched, taskID: taskID, workerID: workerID, evidence: nil, state: &state, now: now)
-            appendEvent(type: .enterSubmitted, taskID: taskID, workerID: workerID, evidence: nil, state: &state, now: now)
-            state.queue.updatedAt = now
-            return
-
-        case let .dispatchSubmissionFailed(taskID, workerID, stage, message):
-            let worker = state.workers.first(where: { $0.id == workerID })
+        case let .tasksEnqueued(tasks, _):
+            for task in tasks {
+                appendEvent(type: .taskCreated, taskID: task.id, workerID: nil, state: &state, now: now)
+            }
+        case .queueResumed, .queueStarted:
+            appendEvent(type: .queueStarted, taskID: nil, workerID: nil, state: &state, now: now)
+        case .queuePaused:
+            appendEvent(type: .queuePaused, taskID: nil, workerID: nil, state: &state, now: now)
+        case let .dispatchSubmitted(taskID, workerID, _, _):
+            appendEvent(type: .taskDispatched, taskID: taskID, workerID: workerID, state: &state, now: now)
+            appendEvent(type: .enterSubmitted, taskID: taskID, workerID: workerID, state: &state, now: now)
+        case let .dispatchSubmissionFailed(taskID, workerID, _, _),
+             let .recoverySubmissionFailed(taskID, workerID, _, _):
+            appendEvent(type: .taskFailed, taskID: taskID, workerID: workerID, state: &state, now: now)
+        case let .taskReported(report):
             appendEvent(
-                type: .taskFailed,
-                taskID: taskID,
-                workerID: workerID,
-                evidence: AgentQueueLogEvidence(
-                    workspaceID: state.queue.workspaceID,
-                    paneID: worker?.paneID,
-                    surfaceID: worker?.surfaceID,
-                    command: stage.rawValue,
-                    screenExcerpt: message
-                ),
-                state: &state,
-                now: now
-            )
-            state.queue.updatedAt = now
-            return
-
-        case let .ignoredReport(surfaceID, excerpt, reason):
-            appendEvent(
-                type: .ignoredReport,
-                taskID: nil,
+                type: report.status == .completed ? .taskCompleted : .taskFailed,
+                taskID: report.taskID,
                 workerID: nil,
-                evidence: AgentQueueLogEvidence(
-                    workspaceID: state.queue.workspaceID,
-                    paneID: nil,
-                    surfaceID: surfaceID,
-                    command: reason,
-                    screenExcerpt: excerpt
-                ),
                 state: &state,
                 now: now
             )
-            state.queue.updatedAt = now
-            return
-
-        default:
+        case let .recoverySubmitted(taskID, _, _),
+             let .recoverySent(taskID):
+            appendEvent(type: .recoverySent, taskID: taskID, workerID: workerIDOrNil(event), state: &state, now: now)
+        case let .taskTimedOut(taskID, _), let .timeout(taskID):
+            appendEvent(type: .timeout, taskID: taskID, workerID: nil, state: &state, now: now)
+        case let .taskCancelled(taskID):
+            appendEvent(type: .taskCancelled, taskID: taskID, workerID: nil, state: &state, now: now)
+        case let .reportDetected(report):
+            appendEvent(type: .reportDetected, taskID: report.taskID, workerID: nil, state: &state, now: now)
+        case .bindingsPrepared, .agentReady, .agentRemoved, .ignoredReport:
             break
         }
-
-        let logType: AgentQueueLogEventType
-        let taskID: String?
-        switch event {
-        case .queueStarted:
-            logType = .queueStarted
-            taskID = nil
-        case .queuePaused:
-            logType = .queuePaused
-            taskID = nil
-        case .dispatchSubmitted, .dispatchSubmissionFailed:
-            return
-        case let .reportDetected(report):
-            logType = report.location == .wrongPane ? .wrongPaneReportDetected : .reportDetected
-            taskID = report.taskID
-        case .ignoredReport:
-            return
-        case let .timeout(id):
-            logType = .timeout
-            taskID = id
-        case let .recoverySent(id):
-            logType = .recoverySent
-            taskID = id
-        case let .taskCancelled(id):
-            logType = .taskCancelled
-            taskID = id
-        }
-
-        appendEvent(type: logType, taskID: taskID, workerID: nil, evidence: nil, state: &state, now: now)
-        state.queue.updatedAt = now
     }
 
-    private static func appendEvent(
+    private func workerIDOrNil(_ event: AgentQueueInputEvent) -> String? {
+        if case let .recoverySubmitted(_, workerID, _) = event {
+            return workerID
+        }
+        return nil
+    }
+
+    private func appendEvent(
         type: AgentQueueLogEventType,
         taskID: String?,
         workerID: String?,
-        evidence: AgentQueueLogEvidence?,
         state: inout AgentQueueState,
         now: Date
     ) {
@@ -314,9 +533,29 @@ enum AgentQueueCore {
                 workerID: workerID,
                 type: type,
                 message: "\(type.rawValue)\(taskID.map { " \($0)" } ?? "")",
-                evidence: evidence,
+                evidence: nil,
                 createdAt: now
             )
         )
+    }
+}
+
+private extension AgentTaskStatus {
+    var isActive: Bool {
+        switch self {
+        case .dispatching, .dispatched, .awaitingReport, .retrying:
+            true
+        case .queued, .completed, .blocked, .failed, .cancelled:
+            false
+        }
+    }
+
+    var isTerminal: Bool {
+        switch self {
+        case .completed, .blocked, .failed, .cancelled:
+            true
+        case .queued, .dispatching, .dispatched, .awaitingReport, .retrying:
+            false
+        }
     }
 }
