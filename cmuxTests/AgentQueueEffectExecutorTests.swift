@@ -118,6 +118,30 @@ import Testing
         await registry.unregister(workspaceID: fixture.workspaceID)
         #expect(await registry.coordinator(workspaceID: fixture.workspaceID) == nil)
     }
+
+    @Test func controllerProjectsCommittedCoordinatorState() async throws {
+        let fixture = try EffectExecutorFixture.make()
+        let coordinator = fixture.coordinator()
+        let pane = RecordingEffectPaneAdapter()
+        let executor = AgentQueueEffectExecutor(coordinator: coordinator, paneAdapter: pane)
+        let controller = AgentQueueController(
+            initialState: fixture.state,
+            paneAdapter: pane,
+            store: nil,
+            coordinator: coordinator,
+            effectExecutor: executor
+        )
+
+        await controller.start()
+        try await coordinator.pause(cause: "projection-test")
+        for _ in 0..<20 where controller.state.queue.status != .paused {
+            await Task.yield()
+        }
+        controller.stopMonitoring()
+
+        #expect(controller.state.queue.status == .paused)
+        #expect(controller.state.revision == 1)
+    }
 }
 
 private struct EffectExecutorFixture {

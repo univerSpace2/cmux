@@ -87,7 +87,7 @@ private struct AgentQueueLogRowSnapshot: Identifiable, Equatable {
 }
 
 struct AgentQueueSidebarView: View {
-    @ObservedObject var controller: AgentQueueController
+    @Bindable var controller: AgentQueueController
     @State private var taskInput = ""
     @State private var skillQuery = ""
     @State private var skillRows: [AgentQueueSkillRowSnapshot] = []

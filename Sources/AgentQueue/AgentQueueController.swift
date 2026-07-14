@@ -1,22 +1,37 @@
-import Combine
 import Foundation
+import Observation
 
 @MainActor
-final class AgentQueueController: ObservableObject {
-    @Published private(set) var state: AgentQueueState
-    @Published private(set) var pendingRoleSkillChanges: [AgentQueueRoleSkillChange] = []
+@Observable
+final class AgentQueueController {
+    private(set) var state: AgentQueueState
+    private(set) var pendingRoleSkillChanges: [AgentQueueRoleSkillChange] = []
 
+    @ObservationIgnored private let coordinator: AgentQueueCoordinator?
+    @ObservationIgnored private let effectExecutor: AgentQueueEffectExecutor?
+    @ObservationIgnored private var stateTask: Task<Void, Never>?
+    @ObservationIgnored
     private let paneAdapter: AgentQueuePaneAdapting
+    @ObservationIgnored
     private let store: AgentQueueStore?
+    @ObservationIgnored
     private let roleSkillInstaller: (any AgentQueueRoleSkillInstalling)?
+    @ObservationIgnored
     private let workerPreparer: (any AgentQueueWorkerPreparing)?
+    @ObservationIgnored
     private let skillCatalog: AgentQueueSkillCatalog?
+    @ObservationIgnored
     private let skillRootDirectory: String?
+    @ObservationIgnored
     private let pollInterval: Duration
+    @ObservationIgnored
     private let skillSourceExists: @Sendable (String) -> Bool
+    @ObservationIgnored
     private let sleep: @Sendable (Duration) async throws -> Void
+    @ObservationIgnored
     private let now: () -> Date
     private var nextSequence: Int
+    @ObservationIgnored
     private var monitoringTask: Task<Void, Never>?
     private var reportFingerprintOrder: [ReportFingerprint] = []
     private var reportFingerprints: Set<ReportFingerprint> = []
@@ -45,9 +60,13 @@ final class AgentQueueController: ObservableObject {
         sleep: @escaping @Sendable (Duration) async throws -> Void = { duration in
             try await Task.sleep(for: duration)
         },
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        coordinator: AgentQueueCoordinator? = nil,
+        effectExecutor: AgentQueueEffectExecutor? = nil
     ) {
         state = initialState
+        self.coordinator = coordinator
+        self.effectExecutor = effectExecutor
         self.paneAdapter = paneAdapter
         self.store = store
         self.roleSkillInstaller = roleSkillInstaller
@@ -598,12 +617,44 @@ final class AgentQueueController: ObservableObject {
     }
 
     func start() async {
+        if let coordinator {
+            guard stateTask == nil else { return }
+            let updates = await coordinator.stateUpdates()
+            effectExecutor?.start()
+            stateTask = Task { [weak self] in
+                for await snapshot in updates {
+                    guard !Task.isCancelled else { return }
+                    self?.state = snapshot
+                }
+            }
+            return
+        }
         guard canStart else { return }
         await apply(.queueStarted)
     }
 
     func pause() {
+        if let coordinator {
+            Task { try? await coordinator.pause(cause: "manual") }
+            return
+        }
         Task { await apply(.queuePaused(cause: "manual")) }
+    }
+
+    func resume() {
+        guard let coordinator else { return }
+        Task { try? await coordinator.resume() }
+    }
+
+    func removeRegistration(agentID: String) {
+        guard let coordinator else { return }
+        Task {
+            try? await coordinator.removeAgent(
+                agentID: agentID,
+                expectedBindingID: nil,
+                cause: "manual"
+            )
+        }
     }
 
     func startMonitoring() {
@@ -629,6 +680,9 @@ final class AgentQueueController: ObservableObject {
     func stopMonitoring() {
         monitoringTask?.cancel()
         monitoringTask = nil
+        stateTask?.cancel()
+        stateTask = nil
+        effectExecutor?.stop()
     }
 
     func apply(_ event: AgentQueueInputEvent) async {
