@@ -30,17 +30,27 @@ struct AgentQueueCLIInstructionBuilder: Sendable {
         bindingID: String,
         profile: AgentQueueAgentProfile
     ) -> String {
-        """
+        let taskID = shellSingleQuoted(task.id)
+        let bindingID = shellSingleQuoted(bindingID)
+        return """
         $cmux-agent-queue-worker
 
         \(profile.rolePrompt)
 
-        AGENT_QUEUE_TASK_ID=\(task.id)
-        AGENT_QUEUE_BINDING_ID=\(bindingID)
+        export AGENT_QUEUE_TASK_ID=\(taskID)
+        export AGENT_QUEUE_BINDING_ID=\(bindingID)
 
         \(task.body)
 
-        Report completion through `cmux agent-queue report` using this exact task and binding ID.
+        Create one stable report_id for this report attempt. Send the outcome with:
+        printf '%s' "$report_body" | cmux agent-queue report \
+          --task "$AGENT_QUEUE_TASK_ID" \
+          --report "$report_id" \
+          --status completed \
+          --binding "$AGENT_QUEUE_BINDING_ID" \
+          --stdin
+        Use failed for recoverable execution failure, blocked when user or safety input is required.
+        Terminal prose does not complete this task. After uncertain transport, retry the same report ID/body/status.
         """
     }
 
@@ -49,16 +59,19 @@ struct AgentQueueCLIInstructionBuilder: Sendable {
         bindingID: String,
         profile: AgentQueueAgentProfile
     ) -> String {
-        """
+        let taskID = shellSingleQuoted(task.id)
+        let bindingID = shellSingleQuoted(bindingID)
+        return """
         $cmux-agent-queue-worker
 
         \(profile.rolePrompt)
 
         Recover the existing task without changing its assignment.
-        AGENT_QUEUE_TASK_ID=\(task.id)
-        AGENT_QUEUE_BINDING_ID=\(bindingID)
+        export AGENT_QUEUE_TASK_ID=\(taskID)
+        export AGENT_QUEUE_BINDING_ID=\(bindingID)
 
-        Report the new outcome through `cmux agent-queue report`.
+        Create one stable report_id for this report attempt. Report through `cmux agent-queue report`
+        with the exact task and binding IDs. After uncertain transport, retry the same report ID/body/status.
         """
     }
 

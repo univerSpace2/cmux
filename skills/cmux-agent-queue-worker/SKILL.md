@@ -21,12 +21,17 @@ Execute the assigned Agent Queue task in the smallest safe scope. Obey higher-pr
 
 ## Completion contract
 
-End the task by printing one report in the current conversation, replacing the example ID with the exact assigned ID:
+Create one stable `report_id` for each report attempt. Send the report through stdin:
 
-```text
-완료 보고 [T-YYYYMMDD-NNNN]: <summary>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.
+```bash
+printf '%s' "$report_body" | cmux agent-queue report \
+  --task "$AGENT_QUEUE_TASK_ID" \
+  --report "$report_id" \
+  --status completed \
+  --binding "$AGENT_QUEUE_BINDING_ID" \
+  --stdin
 ```
 
-Do not look up planner refs. Do not use `cmux send` for ordinary completion. Agent Queue detects this current-pane report, completes the matching task, and forwards the evidence to the planner.
+Use `failed` for recoverable execution failure. Use `blocked` when user or safety input is required. Terminal prose does not complete a task. If transport outcome is uncertain, retry the same report ID, body, status, task ID, and binding ID.
 
-If blocked, keep the same task ID and print the blocker, evidence gathered, and the decision or input required. Do not broaden scope to work around a safety or ownership boundary.
+Do not look up Planner refs, use `cmux send`, print marker protocols, or rely on screen polling. Keep the same binding during recovery. Do not broaden scope to work around a safety or ownership boundary.
