@@ -51,13 +51,16 @@
 		A71000000000000000000001 /* AgentQueueAgentProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71000000000000000000002 /* AgentQueueAgentProfileView.swift */; };
 		A71900000000000000000001 /* AgentQueueAgentReadiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71900000000000000000002 /* AgentQueueAgentReadiness.swift */; };
 		A71800000000000000000001 /* AgentQueueAgentRole.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71800000000000000000002 /* AgentQueueAgentRole.swift */; };
+		A72800000000000000000001 /* AgentQueueCLIInstructionBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A72800000000000000000002 /* AgentQueueCLIInstructionBuilder.swift */; };
 		A70700000000000000000003 /* AgentQueueController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70700000000000000000004 /* AgentQueueController.swift */; };
 		A70700000000000000000001 /* AgentQueueControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70700000000000000000002 /* AgentQueueControllerTests.swift */; };
 		A72400000000000000000001 /* AgentQueueCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A72400000000000000000002 /* AgentQueueCoordinator.swift */; };
 		A72300000000000000000001 /* AgentQueueCoordinatorError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A72300000000000000000002 /* AgentQueueCoordinatorError.swift */; };
+		A72700000000000000000001 /* AgentQueueCoordinatorRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A72700000000000000000002 /* AgentQueueCoordinatorRegistry.swift */; };
 		A72000000000000000000001 /* AgentQueueCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A72000000000000000000002 /* AgentQueueCoordinatorTests.swift */; };
 		A70400000000000000000003 /* AgentQueueCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70400000000000000000004 /* AgentQueueCore.swift */; };
 		A70400000000000000000001 /* AgentQueueCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70400000000000000000002 /* AgentQueueCoreTests.swift */; };
+		A72600000000000000000001 /* AgentQueueEffectExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A72600000000000000000002 /* AgentQueueEffectExecutor.swift */; };
 		A72500000000000000000001 /* AgentQueueEffectExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A72500000000000000000002 /* AgentQueueEffectExecutorTests.swift */; };
 		A72200000000000000000001 /* AgentQueueFilePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A72200000000000000000002 /* AgentQueueFilePersistence.swift */; };
 		A70200000000000000000003 /* AgentQueueInstructionBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70200000000000000000004 /* AgentQueueInstructionBuilder.swift */; };
@@ -1733,13 +1736,16 @@
 		A71000000000000000000002 /* AgentQueueAgentProfileView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueAgentProfileView.swift; sourceTree = "<group>"; };
 		A71900000000000000000002 /* AgentQueueAgentReadiness.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueAgentReadiness.swift; sourceTree = "<group>"; };
 		A71800000000000000000002 /* AgentQueueAgentRole.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueAgentRole.swift; sourceTree = "<group>"; };
+		A72800000000000000000002 /* AgentQueueCLIInstructionBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueCLIInstructionBuilder.swift; sourceTree = "<group>"; };
 		A70700000000000000000004 /* AgentQueueController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueController.swift; sourceTree = "<group>"; };
 		A70700000000000000000002 /* AgentQueueControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentQueueControllerTests.swift; sourceTree = "<group>"; };
 		A72400000000000000000002 /* AgentQueueCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueCoordinator.swift; sourceTree = "<group>"; };
 		A72300000000000000000002 /* AgentQueueCoordinatorError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueCoordinatorError.swift; sourceTree = "<group>"; };
+		A72700000000000000000002 /* AgentQueueCoordinatorRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueCoordinatorRegistry.swift; sourceTree = "<group>"; };
 		A72000000000000000000002 /* AgentQueueCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentQueueCoordinatorTests.swift; sourceTree = "<group>"; };
 		A70400000000000000000004 /* AgentQueueCore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueCore.swift; sourceTree = "<group>"; };
 		A70400000000000000000002 /* AgentQueueCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentQueueCoreTests.swift; sourceTree = "<group>"; };
+		A72600000000000000000002 /* AgentQueueEffectExecutor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueEffectExecutor.swift; sourceTree = "<group>"; };
 		A72500000000000000000002 /* AgentQueueEffectExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentQueueEffectExecutorTests.swift; sourceTree = "<group>"; };
 		A72200000000000000000002 /* AgentQueueFilePersistence.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueFilePersistence.swift; sourceTree = "<group>"; };
 		A70200000000000000000004 /* AgentQueueInstructionBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueInstructionBuilder.swift; sourceTree = "<group>"; };
@@ -4415,6 +4421,9 @@
 				A71A00000000000000000002 /* AgentQueueAgentBinding.swift */,
 				A72400000000000000000002 /* AgentQueueCoordinator.swift */,
 				A72300000000000000000002 /* AgentQueueCoordinatorError.swift */,
+				A72700000000000000000002 /* AgentQueueCoordinatorRegistry.swift */,
+				A72800000000000000000002 /* AgentQueueCLIInstructionBuilder.swift */,
+				A72600000000000000000002 /* AgentQueueEffectExecutor.swift */,
 				A72200000000000000000002 /* AgentQueueFilePersistence.swift */,
 				A72100000000000000000002 /* AgentQueuePersisting.swift */,
 				A71900000000000000000002 /* AgentQueueAgentReadiness.swift */,
@@ -5432,10 +5441,13 @@
 				A71000000000000000000001 /* AgentQueueAgentProfileView.swift in Sources */,
 				A71900000000000000000001 /* AgentQueueAgentReadiness.swift in Sources */,
 				A71800000000000000000001 /* AgentQueueAgentRole.swift in Sources */,
+				A72800000000000000000001 /* AgentQueueCLIInstructionBuilder.swift in Sources */,
 				A70700000000000000000003 /* AgentQueueController.swift in Sources */,
 				A72400000000000000000001 /* AgentQueueCoordinator.swift in Sources */,
 				A72300000000000000000001 /* AgentQueueCoordinatorError.swift in Sources */,
+				A72700000000000000000001 /* AgentQueueCoordinatorRegistry.swift in Sources */,
 				A70400000000000000000003 /* AgentQueueCore.swift in Sources */,
+				A72600000000000000000001 /* AgentQueueEffectExecutor.swift in Sources */,
 				A72200000000000000000001 /* AgentQueueFilePersistence.swift in Sources */,
 				A70200000000000000000003 /* AgentQueueInstructionBuilder.swift in Sources */,
 				A70100000000000000000003 /* AgentQueueModels.swift in Sources */,
