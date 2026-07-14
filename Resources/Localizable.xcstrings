@@ -31089,6 +31089,125 @@
         }
       }
     },
+    "cli.agentQueue.error.contextRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent-queue requires CMUX_WORKSPACE_ID and CMUX_SURFACE_ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent-queue には CMUX_WORKSPACE_ID と CMUX_SURFACE_ID が必要です"
+          }
+        }
+      }
+    },
+    "cli.agentQueue.error.invalidJSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Queue enqueue stdin must be a nonempty JSON object."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Queue の enqueue stdin には空でない JSON オブジェクトが必要です。"
+          }
+        }
+      }
+    },
+    "cli.agentQueue.error.invalidStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status must be completed, failed, or blocked."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータスは completed、failed、または blocked である必要があります。"
+          }
+        }
+      }
+    },
+    "cli.agentQueue.error.invalidUTF8": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Queue stdin must be valid UTF-8."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Queue の stdin は有効な UTF-8 である必要があります。"
+          }
+        }
+      }
+    },
+    "cli.agentQueue.error.missingOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing required option: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必須オプションがありません: %@"
+          }
+        }
+      }
+    },
+    "cli.agentQueue.error.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown agent-queue subcommand or option: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な agent-queue サブコマンドまたはオプションです: %@"
+          }
+        }
+      }
+    },
+    "cli.agentQueue.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agent-queue <subcommand>\n\nSubcommands:\n  enqueue --stdin\n  report --task ID --report ID --status completed|failed|blocked --binding ID [--stdin]\n  agent ready --agent ID --role planner|worker --binding ID\n  agent offline --agent ID --binding ID\n  agent list\n  agent remove --agent ID [--binding ID]\n  agent reconcile\n  task list\n  pause\n  resume"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux agent-queue <サブコマンド>\n\nサブコマンド:\n  enqueue --stdin\n  report --task ID --report ID --status completed|failed|blocked --binding ID [--stdin]\n  agent ready --agent ID --role planner|worker --binding ID\n  agent offline --agent ID --binding ID\n  agent list\n  agent remove --agent ID [--binding ID]\n  agent reconcile\n  task list\n  pause\n  resume"
+          }
+        }
+      }
+    },
     "cli.claude-hook.error.invalidSurface": {
       "extractionState": "manual",
       "localizations": {

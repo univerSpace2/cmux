@@ -15,10 +15,22 @@ import Security
 struct CLIError: Error, CustomStringConvertible {
     let message: String
     let exitCode: Int32
+    let structuredPayload: [String: Any]?
+    let rpcErrorCode: String?
+    let rpcErrorMessage: String?
 
-    init(message: String, exitCode: Int32 = 1) {
+    init(
+        message: String,
+        exitCode: Int32 = 1,
+        structuredPayload: [String: Any]? = nil,
+        rpcErrorCode: String? = nil,
+        rpcErrorMessage: String? = nil
+    ) {
         self.message = message
         self.exitCode = exitCode
+        self.structuredPayload = structuredPayload
+        self.rpcErrorCode = rpcErrorCode
+        self.rpcErrorMessage = rpcErrorMessage
     }
 
     var description: String { message }
@@ -2618,7 +2630,9 @@ final class SocketClient {
                     action: action,
                     reason: reason,
                     details: safeV2Details(error["details"])
-                )
+                ),
+                rpcErrorCode: code,
+                rpcErrorMessage: message
             )
         }
 
@@ -3110,6 +3124,9 @@ struct CMUXCLI {
         if normalizedCommand == "window" {
             return false
         }
+        if normalizedCommand == "agent-queue" {
+            return false
+        }
         if normalizedCommand == "surface-resume" {
             return false
         }
@@ -3199,6 +3216,14 @@ struct CMUXCLI {
         if command == "version" {
             print(versionSummary())
             return
+        }
+
+        if command == "agent-queue",
+           !commandArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
+            try validateAgentQueueCommandBeforeSocket(
+                commandArgs: commandArgs,
+                environment: processEnv
+            )
         }
 
         // Check for --help/-h on subcommands before resolving sockets,
@@ -3541,6 +3566,9 @@ struct CMUXCLI {
         } catch {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
+            if command == "agent-queue" {
+                throw agentQueueTransportError(error)
+            }
             throw error
         }
         defer { client.close() }
@@ -3581,6 +3609,13 @@ struct CMUXCLI {
 
         case "agent-hibernation":
             try runAgentHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+
+        case "agent-queue":
+            try runAgentQueueCommand(
+                commandArgs: commandArgs,
+                client: client,
+                environment: processEnv
+            )
 
         case "auth", "login", "logout":
             let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
@@ -15315,6 +15350,8 @@ struct CMUXCLI {
             Enable or disable Agent Hibernation.
             Configure idle and live-terminal limits from Settings or cmux settings JSON.
             """
+        case "agent-queue":
+            return Self.agentQueueUsage
         case "restore-session":
             return """
             Usage: cmux restore-session
@@ -35275,6 +35312,7 @@ export default CMUXSessionRestore;
           shortcuts
           disable-browser | enable-browser | browser-status
           agent-hibernation <on|off>
+          agent-queue <enqueue|report|agent|task|pause|resume>
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
@@ -35473,8 +35511,19 @@ struct CMUXTermMain {
         do {
             try cli.run()
         } catch {
-            CMUXCLIOutput.writeStandardError("Error: \(error)\n")
-            let exitCode = (error as? CLIError)?.exitCode ?? 1
+            let cliError = error as? CLIError
+            if let payload = cliError?.structuredPayload,
+               JSONSerialization.isValidJSONObject(payload),
+               let data = try? JSONSerialization.data(
+                   withJSONObject: payload,
+                   options: [.sortedKeys, .withoutEscapingSlashes]
+               ),
+               let line = String(data: data, encoding: .utf8) {
+                CMUXCLIOutput.writeStandardError(line + "\n")
+            } else {
+                CMUXCLIOutput.writeStandardError("Error: \(error)\n")
+            }
+            let exitCode = cliError?.exitCode ?? 1
             exit(exitCode)
         }
     }
