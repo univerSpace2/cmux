@@ -1,6 +1,58 @@
 import Foundation
 import SwiftUI
 
+enum AgentQueueSidebarPrimaryAction: Equatable {
+    case pause
+    case resume
+}
+
+struct AgentQueueAgentRowSnapshot: Identifiable, Equatable {
+    let id: String
+    let role: AgentQueueAgentRole
+    let readiness: AgentQueueAgentReadiness
+    let surfaceLabel: String?
+    let taskTitle: String?
+    let canRemoveRegistration: Bool
+}
+
+struct AgentQueueAgentRowActions {
+    let removeRegistration: () -> Void
+    let reprepare: () -> Void
+}
+
+struct AgentQueueSidebarProjection {
+    let showsGoalInput = false
+    let primaryAction: AgentQueueSidebarPrimaryAction
+    let agentRows: [AgentQueueAgentRowSnapshot]
+
+    init(state: AgentQueueState) {
+        primaryAction = state.queue.status == .running ? .pause : .resume
+        let plannerBinding = state.bindings.first(where: { $0.role == .planner })
+        let planner = AgentQueueAgentRowSnapshot(
+            id: AgentQueueAgentID.planner,
+            role: .planner,
+            readiness: plannerBinding?.readiness ?? .notReady,
+            surfaceLabel: plannerBinding?.surfaceID.map { String($0.uuidString.prefix(8)) },
+            taskTitle: nil,
+            canRemoveRegistration: plannerBinding != nil
+        )
+        let workers = state.workers.map { worker in
+            let binding = state.bindings.first(where: { $0.agentID == worker.id })
+            return AgentQueueAgentRowSnapshot(
+                id: worker.id,
+                role: .worker,
+                readiness: binding?.readiness ?? .notReady,
+                surfaceLabel: binding?.surfaceID.map { String($0.uuidString.prefix(8)) },
+                taskTitle: worker.currentTaskID.flatMap { taskID in
+                    state.tasks.first(where: { $0.id == taskID })?.title
+                },
+                canRemoveRegistration: binding != nil
+            )
+        }
+        agentRows = [planner] + workers
+    }
+}
+
 struct AgentQueuePreparationSnapshot: Equatable, Sendable {
     let workerCount: Int
     let profiles: [AgentQueueAgentProfileSnapshot]
@@ -88,7 +140,6 @@ private struct AgentQueueLogRowSnapshot: Identifiable, Equatable {
 
 struct AgentQueueSidebarView: View {
     @Bindable var controller: AgentQueueController
-    @State private var taskInput = ""
     @State private var skillQuery = ""
     @State private var skillRows: [AgentQueueSkillRowSnapshot] = []
     @State private var showingSkillConfirmation = false
@@ -100,6 +151,10 @@ struct AgentQueueSidebarView: View {
             canEditProfiles: controller.canEditProfiles,
             hasActiveWork: controller.hasActiveWork
         )
+    }
+
+    private var sidebarProjection: AgentQueueSidebarProjection {
+        AgentQueueSidebarProjection(state: controller.state)
     }
 
     private var skillConfirmationMessage: String {
@@ -160,7 +215,6 @@ struct AgentQueueSidebarView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     preparationSection
-                    inputSection
                     queueSection
                     workerSection
                     logSection
@@ -213,19 +267,16 @@ struct AgentQueueSidebarView: View {
                 .font(.headline)
             Spacer()
             Button(
-                controller.state.queue.status == .running
+                sidebarProjection.primaryAction == .pause
                     ? String(localized: "agentQueue.pause", defaultValue: "Pause")
-                    : String(localized: "agentQueue.start", defaultValue: "Start")
+                    : String(localized: "agentQueue.resume", defaultValue: "Resume")
             ) {
-                if controller.state.queue.status == .running {
+                if sidebarProjection.primaryAction == .pause {
                     controller.pause()
                 } else {
-                    Task { await controller.start() }
+                    controller.resume()
                 }
             }
-            .disabled(
-                controller.state.queue.status != .running && preparationSnapshot.isStartDisabled
-            )
         }
         .padding(10)
     }
@@ -321,74 +372,6 @@ struct AgentQueueSidebarView: View {
         }
     }
 
-    private var inputSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(String(localized: "agentQueue.input.goalTitle", defaultValue: "Goal input"))
-                .font(.subheadline.weight(.semibold))
-            TextEditor(text: $taskInput)
-                .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 100)
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25)))
-                .accessibilityIdentifier("AgentQueue.taskInput")
-            Button(
-                String(
-                    localized: "agentQueue.input.sendToPlanner",
-                    defaultValue: "Send to Planner"
-                )
-            ) {
-                let submittedGoal = taskInput
-                Task {
-                    if await controller.requestPlan(for: submittedGoal),
-                       taskInput == submittedGoal {
-                        taskInput = ""
-                    }
-                }
-            }
-            .disabled(
-                taskInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    !controller.canRequestPlan
-            )
-
-            if let planningRequest = controller.state.planningRequest {
-                switch planningRequest.phase {
-                case .submitting, .waitingForPlanner:
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(
-                            String(
-                                localized: "agentQueue.input.planning",
-                                defaultValue: "Planner is creating tasks…"
-                            )
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-
-                case .failed:
-                    if let errorMessage = planningRequest.errorMessage {
-                        Text(errorMessage)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                            .textSelection(.enabled)
-                    }
-                    Button(
-                        String(localized: "agentQueue.input.retry", defaultValue: "Retry")
-                    ) {
-                        let retryGoal = planningRequest.goal
-                        Task {
-                            if await controller.retryPlanningRequest(),
-                               taskInput.trimmingCharacters(in: .whitespacesAndNewlines) == retryGoal {
-                                taskInput = ""
-                            }
-                        }
-                    }
-                    .disabled(!controller.canRequestPlan)
-                }
-            }
-        }
-    }
-
     private var queueSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "agentQueue.queue.title", defaultValue: "Queue"))
@@ -407,31 +390,22 @@ struct AgentQueueSidebarView: View {
     }
 
     private var workerSection: some View {
-        let snapshot = preparationSnapshot
         return VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "agentQueue.workers.title", defaultValue: "Workers"))
                 .font(.subheadline.weight(.semibold))
-            HStack {
-                VStack(alignment: .leading) {
-                    Text(String(localized: "agentQueue.preparation.planner", defaultValue: "Planner"))
-                    Text(
-                        String.localizedStringWithFormat(
-                            String(localized: "agentQueue.worker.surfaceFormat", defaultValue: "surface:%@"),
-                            String(controller.state.queue.plannerSurfaceID.uuidString.prefix(8))
+            LazyVStack(spacing: 6) {
+                ForEach(sidebarProjection.agentRows) { row in
+                    AgentQueueAgentRow(
+                        row: row,
+                        actions: AgentQueueAgentRowActions(
+                            removeRegistration: {
+                                controller.removeRegistration(agentID: row.id)
+                            },
+                            reprepare: {
+                                Task { await controller.prepareWorkers(allowSkillChanges: false) }
+                            }
                         )
                     )
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Text(snapshot.phaseText)
-                    .font(.caption.weight(.semibold))
-            }
-            .padding(8)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
-            LazyVStack(spacing: 6) {
-                ForEach(workerRows) { row in
-                    AgentQueueWorkerRow(row: row)
                 }
             }
         }
@@ -502,20 +476,65 @@ private struct AgentQueueTaskRow: View {
     }
 }
 
-private struct AgentQueueWorkerRow: View {
-    let row: AgentQueueWorkerRowSnapshot
+private struct AgentQueueAgentRow: View {
+    let row: AgentQueueAgentRowSnapshot
+    let actions: AgentQueueAgentRowActions
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading) {
-                Text(row.label)
-                Text(row.surfaceText).font(.caption.monospaced()).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(
+                    row.role == .planner
+                        ? String(localized: "agentQueue.preparation.planner", defaultValue: "Planner")
+                        : row.id
+                )
+                Spacer()
+                Text(readinessText)
+                    .font(.caption.weight(.semibold))
             }
-            Spacer()
-            Text(row.statusText).font(.caption.weight(.semibold))
+            if let surfaceLabel = row.surfaceLabel {
+                Text(String.localizedStringWithFormat(
+                    String(localized: "agentQueue.worker.surfaceFormat", defaultValue: "surface:%@"),
+                    surfaceLabel
+                ))
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            if let taskTitle = row.taskTitle {
+                Text(taskTitle).font(.caption).lineLimit(2)
+            }
+            HStack {
+                Button(
+                    String(
+                        localized: "agentQueue.removeRegistration",
+                        defaultValue: "Remove Registration"
+                    ),
+                    action: actions.removeRegistration
+                )
+                .disabled(!row.canRemoveRegistration)
+                Button(
+                    String(localized: "agentQueue.reprepare", defaultValue: "Re-prepare"),
+                    action: actions.reprepare
+                )
+            }
+            .buttonStyle(.borderless)
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
+    }
+
+    private var readinessText: String {
+        switch row.readiness {
+        case .pending:
+            return String(
+                localized: "agentQueue.agent.pending",
+                defaultValue: "Waiting for handshake"
+            )
+        case .ready:
+            return String(localized: "agentQueue.preparation.phase.ready", defaultValue: "Ready")
+        case .notReady:
+            return String(localized: "agentQueue.agent.notReady", defaultValue: "Not ready")
+        }
     }
 }
 

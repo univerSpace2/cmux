@@ -231606,6 +231606,55 @@
         }
       }
     },
+    "agentQueue.resume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Resume" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再開" } }
+      }
+    },
+    "agentQueue.removeRegistration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remove Registration" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "登録を解除" } }
+      }
+    },
+    "agentQueue.reprepare": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Re-prepare" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再準備" } }
+      }
+    },
+    "agentQueue.agent.pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Waiting for handshake" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ハンドシェイク待機中" } }
+      }
+    },
+    "agentQueue.agent.notReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Not ready" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未準備" } }
+      }
+    },
+    "agentQueue.lifecycle.activeWorkerLost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Active Worker was lost; its task was blocked." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中の Worker が失われたため、タスクをブロックしました。" } }
+      }
+    },
+    "agentQueue.lifecycle.plannerLost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Planner registration was lost; queue paused." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Planner の登録が失われたため、キューを一時停止しました。" } }
+      }
+    },
     "agentQueue.input.title": {
       "extractionState": "manual",
       "localizations": {

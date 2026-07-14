@@ -23,7 +23,7 @@ struct AgentQueueSidebarProjectionTests {
         state.queue.status = .paused
         let projection = AgentQueueSidebarProjection(state: state)
         #expect(projection.primaryAction == .resume)
-        #expect(projection.agentRows.allSatisfy(\.canRemoveRegistration))
+        #expect(projection.agentRows.allSatisfy { $0.canRemoveRegistration })
         #expect(projection.agentRows.first(where: { $0.role == .planner })?.readiness == .ready)
     }
 
