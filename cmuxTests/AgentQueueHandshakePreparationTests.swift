@@ -86,7 +86,7 @@ struct AgentQueueHandshakePreparationTests {
     }
 
     @Test
-    func bootstrapLaunchesWrappedCodexThenSubmitsReadyPrompt() async throws {
+    func bootstrapLaunchesAbsentCodexWithReadyAndSkillsAsInitialPrompt() async throws {
         let planner = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let worker = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
         let driver = HandshakePreparationDriver(terminalSurfaceIDs: [planner, worker])
@@ -134,17 +134,34 @@ struct AgentQueueHandshakePreparationTests {
             ),
         ]
 
+        let workerProfile = AgentQueueAgentProfile(
+            id: "worker-1",
+            additionalSkills: [
+                AgentQueueSkillSelection(name: "careful", sourcePath: "/tmp/careful/SKILL.md"),
+            ],
+            rolePrompt: "Preserve \\ and \"quotes\" plus 'single quotes'."
+        )
+        let configuration = try AgentQueuePreparationConfiguration.defaultConfiguration
+            .replacingProfile(workerProfile)
+
         let failures = await service.bootstrap(
             topology: topology,
             bindings: bindings,
-            configuration: .defaultConfiguration
+            configuration: configuration
         )
 
         #expect(failures.isEmpty)
         #expect(driver.shellCommands.count == 1)
         #expect(driver.shellCommands[0].surfaceID == worker)
+        #expect(driver.shellCommands[0].text.contains(
+            "codex 'cmux agent-queue agent ready --agent worker-1 --role worker --binding binding-worker-1"
+        ))
+        #expect(driver.shellCommands[0].text.contains("$cmux-agent-queue-worker $careful"))
+        #expect(driver.shellCommands[0].text.contains("Preserve \\ and \"quotes\" plus '" +
+            "\"'\"'single quotes'\"'\"'."))
         #expect(driver.shellCommands[0].text.contains("agent offline"))
-        #expect(driver.prompts.count == 2)
+        #expect(driver.prompts.count == 1)
+        #expect(driver.prompts[0].surfaceID == planner)
         #expect(driver.prompts.allSatisfy { $0.text.hasPrefix("cmux agent-queue agent ready") })
     }
 }
