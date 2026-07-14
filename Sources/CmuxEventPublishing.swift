@@ -257,6 +257,12 @@ extension CmuxEventBus {
                 "origin": origin
             ]
         )
+        yieldSurfaceClosed(CmuxSurfaceClosedEvent(
+            workspaceID: workspaceId,
+            surfaceID: surfaceId,
+            paneID: paneId,
+            origin: origin
+        ))
     }
 
     func publishPaneClosed(workspaceId: UUID, paneId: UUID, closedSurfaceIds: [UUID], origin: String) {

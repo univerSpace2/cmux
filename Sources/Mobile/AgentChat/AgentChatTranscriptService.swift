@@ -24,6 +24,9 @@ final class AgentChatTranscriptService {
     /// failures don't rescan the filesystem during tool storms.
     private var failedResolutions: Set<String> = []
     private var endedListability = AgentChatEndedTranscriptListabilityCache()
+    private var lifecycleContinuations: [
+        UUID: AsyncStream<AgentChatSessionRecord>.Continuation
+    ] = [:]
 
     /// Creates the service with a hook-store-backed registry.
     ///
@@ -228,6 +231,18 @@ final class AgentChatTranscriptService {
     /// - Returns: The record, or `nil` when unknown.
     func sessionRecord(sessionID: String) -> AgentChatSessionRecord? {
         registry.record(sessionID: sessionID)
+    }
+
+    func lifecycleEvents() -> AsyncStream<AgentChatSessionRecord> {
+        let id = UUID()
+        return AsyncStream { continuation in
+            lifecycleContinuations[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in
+                    self?.lifecycleContinuations.removeValue(forKey: id)
+                }
+            }
+        }
     }
 
     /// Whether an ended session can still serve history without expensive
@@ -446,6 +461,9 @@ final class AgentChatTranscriptService {
         }
         let stateChanged = previous?.state != record.state
         let transcriptBecameAvailable = previous?.transcriptPath == nil && record.transcriptPath != nil
+        if stateChanged {
+            lifecycleContinuations.values.forEach { $0.yield(record) }
+        }
         if stateChanged, record.state == .ended {
             // The transcript can no longer grow; stop any live preview loop so
             // an agent that exits without a Stop hook doesn't leak the poll task.

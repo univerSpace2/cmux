@@ -134,6 +134,9 @@ final class CmuxEventBus: @unchecked Sendable {
     private var nextSequence: Int64 = 1
     private var retained: [[String: Any]] = []
     private var subscriptions: [UUID: CmuxEventSubscription] = [:]
+    private var surfaceClosedContinuations: [
+        UUID: AsyncStream<CmuxSurfaceClosedEvent>.Continuation
+    ] = [:]
 
     init(
         retainedEventLimit: Int = CmuxEventBus.defaultRetainedEventLimit,
@@ -159,6 +162,31 @@ final class CmuxEventBus: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return nextSequence - 1
+    }
+
+    func surfaceClosedEvents() -> AsyncStream<CmuxSurfaceClosedEvent> {
+        let id = UUID()
+        return AsyncStream { continuation in
+            lock.lock()
+            surfaceClosedContinuations[id] = continuation
+            lock.unlock()
+            continuation.onTermination = { [weak self] _ in
+                self?.removeSurfaceClosedContinuation(id: id)
+            }
+        }
+    }
+
+    func yieldSurfaceClosed(_ event: CmuxSurfaceClosedEvent) {
+        lock.lock()
+        let continuations = Array(surfaceClosedContinuations.values)
+        lock.unlock()
+        continuations.forEach { $0.yield(event) }
+    }
+
+    private func removeSurfaceClosedContinuation(id: UUID) {
+        lock.lock()
+        surfaceClosedContinuations.removeValue(forKey: id)
+        lock.unlock()
     }
 
     func publish(

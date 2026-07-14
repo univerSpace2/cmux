@@ -9,6 +9,7 @@ final class AgentQueueController {
 
     @ObservationIgnored private let coordinator: AgentQueueCoordinator?
     @ObservationIgnored private let effectExecutor: AgentQueueEffectExecutor?
+    @ObservationIgnored private var topologyReconciler: AgentQueueTopologyReconciler?
     @ObservationIgnored private var stateTask: Task<Void, Never>?
     @ObservationIgnored
     private let paneAdapter: AgentQueuePaneAdapting
@@ -388,6 +389,7 @@ final class AgentQueueController {
             }
             state.queue.updatedAt = now()
             persistSoon()
+            topologyReconciler?.reconcile(cause: "preparation")
         } catch {
             state.queue.status = .paused
             updatePreparation(
@@ -632,6 +634,19 @@ final class AgentQueueController {
         }
         guard canStart else { return }
         await apply(.queueStarted)
+    }
+
+    func installTopologyReconciler(_ reconciler: AgentQueueTopologyReconciler) {
+        topologyReconciler = reconciler
+    }
+
+    func startTopologyMonitoring() {
+        let processEvents = TerminalController.shared.agentChatTranscriptService?.lifecycleEvents()
+            ?? AsyncStream { $0.finish() }
+        topologyReconciler?.start(
+            surfaceEvents: CmuxEventBus.shared.surfaceClosedEvents(),
+            processEvents: processEvents
+        )
     }
 
     func pause() {
@@ -1418,6 +1433,7 @@ final class AgentQueueControllerFactory {
             try? await runtime.coordinator.restore()
             await registry.register(runtime.coordinator, workspaceID: workspace.id)
             await controller.start()
+            controller.startTopologyMonitoring()
         }
         return runtime.controller
     }
@@ -1459,6 +1475,7 @@ final class AgentQueueControllerFactory {
                 workspaceID: candidate.workspace.id
             )
             await runtime.controller.start()
+            runtime.controller.startTopologyMonitoring()
         }
     }
 
@@ -1495,6 +1512,32 @@ final class AgentQueueControllerFactory {
             coordinator: coordinator,
             effectExecutor: effectExecutor
         )
+        let topologyReconciler = AgentQueueTopologyReconciler(
+            workspaceID: workspace.id,
+            coordinator: coordinator,
+            liveSurfaceIDs: { [weak workspace] in
+                guard let workspace else { return [] }
+                return Set(workspace.panels.keys)
+            },
+            endedBindingIDs: { [weak controller, weak workspace] in
+                guard let controller,
+                      let workspace,
+                      let service = TerminalController.shared.agentChatTranscriptService else {
+                    return []
+                }
+                let endedSessions = Set(
+                    service.sessionRecords(workspaceID: workspace.id.uuidString)
+                        .filter { $0.state == .ended }
+                        .map(\.sessionID)
+                )
+                return Set(controller.state.bindings.compactMap { binding in
+                    guard let sessionID = binding.observedSessionID,
+                          endedSessions.contains(sessionID) else { return nil }
+                    return binding.bindingID
+                })
+            }
+        )
+        controller.installTopologyReconciler(topologyReconciler)
         return (controller, coordinator)
     }
 

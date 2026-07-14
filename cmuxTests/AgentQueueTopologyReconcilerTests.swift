@@ -59,7 +59,9 @@ struct AgentQueueTopologyReconcilerTests {
         ))
 
         let state = await coordinator.snapshot()
-        #expect(state.bindings.contains(where: { $0.role == .planner }) == false)
+        let planner = try #require(state.bindings.first(where: { $0.role == .planner }))
+        #expect(planner.readiness == .notReady)
+        #expect(planner.surfaceID == nil)
         #expect(state.queue.status == .paused)
     }
 

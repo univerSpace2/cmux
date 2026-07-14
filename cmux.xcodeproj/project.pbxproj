@@ -94,6 +94,7 @@
 		A70500000000000000000001 /* AgentQueueStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70500000000000000000002 /* AgentQueueStoreTests.swift */; };
 		A71B00000000000000000001 /* AgentQueueSubmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71B00000000000000000002 /* AgentQueueSubmission.swift */; };
 		A71D00000000000000000001 /* AgentQueueTaskReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71D00000000000000000002 /* AgentQueueTaskReport.swift */; };
+		A73200000000000000000001 /* AgentQueueTopologyReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A73200000000000000000002 /* AgentQueueTopologyReconciler.swift */; };
 		A73100000000000000000001 /* AgentQueueTopologyReconcilerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A73100000000000000000002 /* AgentQueueTopologyReconcilerTests.swift */; };
 		A70F00000000000000000001 /* AgentQueueWorkerPreparationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70F00000000000000000002 /* AgentQueueWorkerPreparationService.swift */; };
 		D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */; };
@@ -541,6 +542,7 @@
 		E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000A /* CmuxSocketEventMapper.swift */; };
 		C3677002000000000000001 /* CmuxSSHURLRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677002000000000000002 /* CmuxSSHURLRequest.swift */; };
 		C3677001000000000000001 /* CmuxSSHURLRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677001000000000000002 /* CmuxSSHURLRequestTests.swift */; };
+		A73300000000000000000001 /* CmuxSurfaceClosedEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A73300000000000000000002 /* CmuxSurfaceClosedEvent.swift */; };
 		C0DE43000000000000000003 /* CmuxSurfaceTabBarBuiltInAction+Codable.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000004 /* CmuxSurfaceTabBarBuiltInAction+Codable.swift */; };
 		C10D00030000000000000003 /* CmuxSurfaceTabBarBuiltInAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */; };
 		C5A1FED000000000000000C1 /* CmuxSwiftRender in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED000000000000000C3 /* CmuxSwiftRender */; };
@@ -1788,6 +1790,7 @@
 		A70500000000000000000002 /* AgentQueueStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentQueueStoreTests.swift; sourceTree = "<group>"; };
 		A71B00000000000000000002 /* AgentQueueSubmission.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueSubmission.swift; sourceTree = "<group>"; };
 		A71D00000000000000000002 /* AgentQueueTaskReport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueTaskReport.swift; sourceTree = "<group>"; };
+		A73200000000000000000002 /* AgentQueueTopologyReconciler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueTopologyReconciler.swift; sourceTree = "<group>"; };
 		A73100000000000000000002 /* AgentQueueTopologyReconcilerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentQueueTopologyReconcilerTests.swift; sourceTree = "<group>"; };
 		A70F00000000000000000002 /* AgentQueueWorkerPreparationService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentQueue/AgentQueueWorkerPreparationService.swift; sourceTree = "<group>"; };
 		D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSettingsTests.swift; sourceTree = "<group>"; };
@@ -2192,6 +2195,7 @@
 		E7E00000000000000000000A /* CmuxSocketEventMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSocketEventMapper.swift; sourceTree = "<group>"; };
 		C3677002000000000000002 /* CmuxSSHURLRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSSHURLRequest.swift; sourceTree = "<group>"; };
 		C3677001000000000000002 /* CmuxSSHURLRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSSHURLRequestTests.swift; sourceTree = "<group>"; };
+		A73300000000000000000002 /* CmuxSurfaceClosedEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSurfaceClosedEvent.swift; sourceTree = "<group>"; };
 		C0DE43000000000000000004 /* CmuxSurfaceTabBarBuiltInAction+Codable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxSurfaceTabBarBuiltInAction+Codable.swift"; sourceTree = "<group>"; };
 		C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSurfaceTabBarBuiltInAction.swift; sourceTree = "<group>"; };
 		F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -3898,6 +3902,7 @@
 				D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */,
 				D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */,
 				E7E000000000000000000006 /* CmuxEventBus.swift */,
+				A73300000000000000000002 /* CmuxSurfaceClosedEvent.swift */,
 				E7E00000000000000000000E /* CmuxEventLogWriter.swift */,
 				E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */,
 				E7E000000000000000000008 /* CmuxEventPublishing.swift */,
@@ -4470,6 +4475,7 @@
 				A70A00000000000000000002 /* AgentQueueSkillSupport.swift */,
 				A70E00000000000000000002 /* AgentQueuePreparationModels.swift */,
 				A70F00000000000000000002 /* AgentQueueWorkerPreparationService.swift */,
+				A73200000000000000000002 /* AgentQueueTopologyReconciler.swift */,
 				59065015952E1B5BE5E23519 /* Mobile */,
 				31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */,
 			);
@@ -5497,6 +5503,7 @@
 				A70500000000000000000003 /* AgentQueueStore.swift in Sources */,
 				A71B00000000000000000001 /* AgentQueueSubmission.swift in Sources */,
 				A71D00000000000000000001 /* AgentQueueTaskReport.swift in Sources */,
+				A73200000000000000000001 /* AgentQueueTopologyReconciler.swift in Sources */,
 				A70F00000000000000000001 /* AgentQueueWorkerPreparationService.swift in Sources */,
 				A9E020000000000000000008 /* AgentSessionBridge.swift in Sources */,
 				A9F20000000000000000000B /* AgentSessionBridgeError.swift in Sources */,
@@ -5711,6 +5718,7 @@
 				C0DE46030000000000000001 /* CMUXSidebarExtensionBrowserPanel.swift in Sources */,
 				E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */,
 				C3677002000000000000001 /* CmuxSSHURLRequest.swift in Sources */,
+				A73300000000000000000001 /* CmuxSurfaceClosedEvent.swift in Sources */,
 				C0DE43000000000000000003 /* CmuxSurfaceTabBarBuiltInAction+Codable.swift in Sources */,
 				C10D00030000000000000003 /* CmuxSurfaceTabBarBuiltInAction.swift in Sources */,
 				C7A510000000000000000002 /* CmuxTopMemoryDiagnostics.swift in Sources */,
