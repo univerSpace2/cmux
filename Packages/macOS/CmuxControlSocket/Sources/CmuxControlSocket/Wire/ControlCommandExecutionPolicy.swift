@@ -89,6 +89,19 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
+        // Agent Queue is an async durable-control domain. Parse and validate
+        // on the socket worker, then await the app-owned coordinator without
+        // synchronously entering the main actor or changing UI focus.
+        "agent_queue.agent.ready",
+        "agent_queue.agent.offline",
+        "agent_queue.agent.list",
+        "agent_queue.agent.remove",
+        "agent_queue.agent.reconcile",
+        "agent_queue.task.enqueue",
+        "agent_queue.task.report",
+        "agent_queue.task.list",
+        "agent_queue.pause",
+        "agent_queue.resume",
         // `mobile.terminal.set_font` only validates params and emits a push
         // event via thread-safe MobileHostService statics, so it runs on the worker
         // like the other mobile data-plane verbs. Without this entry the policy

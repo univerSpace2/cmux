@@ -8,6 +8,14 @@ import CmuxSettings
 // the methods they drive; everything else returns an inert "nothing here"
 // result. As domains land, add their defaults here (one block per domain).
 
+extension ControlAgentQueueContext {
+    nonisolated func controlAgentQueue(
+        _ call: ControlAgentQueueCall
+    ) async -> ControlCallResult {
+        .err(code: "unavailable", message: "", data: nil)
+    }
+}
+
 extension ControlCommandContext {
     /// Test default for the worker-lane resolution hop primitive: run the
     /// body on the main actor (inline when the test is already there, else a
@@ -21,8 +29,9 @@ extension ControlCommandContext {
         // The hop is synchronous: the calling thread blocks until `body`
         // returns, so handing the seam into the main-actor window cannot
         // outlive the call (the same contract as the app's `v2MainSync`).
-        // Strict checking can't see that, hence the unsafe transfer.
-        nonisolated(unsafe) let seam: any ControlCommandContext = self
+        // The umbrella is Sendable through ControlAgentQueueContext, so this
+        // synchronous transfer no longer needs an unsafe isolation escape.
+        let seam: any ControlCommandContext = self
         if Thread.isMainThread {
             return MainActor.assumeIsolated { body(seam) }
         }
