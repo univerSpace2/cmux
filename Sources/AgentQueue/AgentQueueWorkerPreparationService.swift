@@ -25,6 +25,12 @@ struct AgentQueuePreparedWorkspace: Equatable, Sendable {
     var failures: [AgentQueueAgentPreparationFailure]
 }
 
+struct AgentQueuePreparedTopology: Equatable, Sendable {
+    var plannerSurfaceID: UUID
+    var workerSlots: [AgentQueueWorkerSlot]
+    var workingDirectory: String
+}
+
 enum AgentQueueWorkerSplitDirection: Equatable, Sendable {
     case right
 }
@@ -52,6 +58,19 @@ protocol AgentQueueWorkspaceDriving: AnyObject {
 
 @MainActor
 protocol AgentQueueWorkerPreparing: AnyObject {
+    func prepareTopology(
+        configuration: AgentQueuePreparationConfiguration,
+        plannerSurfaceID: UUID,
+        existingWorkerSlots: [AgentQueueWorkerSlot],
+        activeWorkerAgentIDs: Set<String>
+    ) async throws -> AgentQueuePreparedTopology
+
+    func bootstrap(
+        topology: AgentQueuePreparedTopology,
+        bindings: [AgentQueueAgentBinding],
+        configuration: AgentQueuePreparationConfiguration
+    ) async -> [AgentQueueAgentPreparationFailure]
+
     func prepare(
         configuration: AgentQueuePreparationConfiguration,
         plannerSurfaceID: UUID,
@@ -62,17 +81,49 @@ protocol AgentQueueWorkerPreparing: AnyObject {
     ) async throws -> AgentQueuePreparedWorkspace
 }
 
+extension AgentQueueWorkerPreparing {
+    func prepareTopology(
+        configuration: AgentQueuePreparationConfiguration,
+        plannerSurfaceID: UUID,
+        existingWorkerSlots: [AgentQueueWorkerSlot],
+        activeWorkerAgentIDs _: Set<String>
+    ) async throws -> AgentQueuePreparedTopology {
+        let requestedIDs = Array(AgentQueueAgentID.workerIDs.prefix(configuration.workerCount))
+        let slots = requestedIDs.compactMap { agentID in
+            existingWorkerSlots.first(where: { $0.agentID == agentID })
+        }
+        guard slots.count == requestedIDs.count else {
+            throw AgentQueuePreparationError.plannerUnavailable
+        }
+        return AgentQueuePreparedTopology(
+            plannerSurfaceID: plannerSurfaceID,
+            workerSlots: slots,
+            workingDirectory: ""
+        )
+    }
+
+    func bootstrap(
+        topology _: AgentQueuePreparedTopology,
+        bindings _: [AgentQueueAgentBinding],
+        configuration _: AgentQueuePreparationConfiguration
+    ) async -> [AgentQueueAgentPreparationFailure] {
+        []
+    }
+}
+
 @MainActor
 final class AgentQueueWorkerPreparationService: AgentQueueWorkerPreparing {
     private let driver: AgentQueueWorkspaceDriving
     private let readinessTimeout: Duration
     private let pollInterval: Duration
     private let sleep: @Sendable (Duration) async throws -> Void
+    private let instructionBuilder: AgentQueueCLIInstructionBuilder
 
     init(
         driver: AgentQueueWorkspaceDriving,
         readinessTimeout: Duration = .seconds(30),
         pollInterval: Duration = .milliseconds(100),
+        instructionBuilder: AgentQueueCLIInstructionBuilder = .init(),
         sleep: @escaping @Sendable (Duration) async throws -> Void = { duration in
             try await Task.sleep(for: duration)
         }
@@ -80,11 +131,127 @@ final class AgentQueueWorkerPreparationService: AgentQueueWorkerPreparing {
         self.driver = driver
         self.readinessTimeout = readinessTimeout
         self.pollInterval = pollInterval
+        self.instructionBuilder = instructionBuilder
         self.sleep = sleep
     }
 
     convenience init(workspace: Workspace, tabManager: TabManager) {
         self.init(driver: AppAgentQueueWorkspaceDriver(workspace: workspace, tabManager: tabManager))
+    }
+
+    func prepareTopology(
+        configuration: AgentQueuePreparationConfiguration,
+        plannerSurfaceID: UUID,
+        existingWorkerSlots: [AgentQueueWorkerSlot],
+        activeWorkerAgentIDs _: Set<String>
+    ) async throws -> AgentQueuePreparedTopology {
+        let plan = try AgentQueueWorkerReconciler.plan(
+            existing: existingWorkerSlots,
+            requestedCount: configuration.workerCount,
+            activeWorkerAgentIDs: []
+        )
+        guard driver.isTerminalSurface(plannerSurfaceID) else {
+            throw AgentQueuePreparationError.plannerUnavailable
+        }
+        let workingDirectory = driver.workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !workingDirectory.isEmpty else {
+            throw AgentQueuePreparationError.plannerUnavailable
+        }
+
+        var workerSlots = plan.keep
+        for agentID in plan.createAgentIDs {
+            let request = AgentQueueWorkerSplitRequest(
+                sourceSurfaceID: plannerSurfaceID,
+                direction: .right,
+                focus: false,
+                workingDirectory: workingDirectory,
+                initialCommand: ""
+            )
+            guard let surfaceID = driver.createWorkerSplit(request) else {
+                throw AgentQueuePreparationError.plannerUnavailable
+            }
+            workerSlots.append(AgentQueueWorkerSlot(agentID: agentID, surfaceID: surfaceID))
+        }
+        workerSlots.sort { lhs, rhs in
+            let lhsIndex = AgentQueueAgentID.workerIDs.firstIndex(of: lhs.agentID) ?? Int.max
+            let rhsIndex = AgentQueueAgentID.workerIDs.firstIndex(of: rhs.agentID) ?? Int.max
+            return lhsIndex < rhsIndex
+        }
+        return AgentQueuePreparedTopology(
+            plannerSurfaceID: plannerSurfaceID,
+            workerSlots: workerSlots,
+            workingDirectory: workingDirectory
+        )
+    }
+
+    func bootstrap(
+        topology: AgentQueuePreparedTopology,
+        bindings: [AgentQueueAgentBinding],
+        configuration: AgentQueuePreparationConfiguration
+    ) async -> [AgentQueueAgentPreparationFailure] {
+        var failures: [AgentQueueAgentPreparationFailure] = []
+        for agentID in configuration.activeAgentIDs {
+            guard let binding = bindings.first(where: { $0.agentID == agentID }),
+                  let surfaceID = binding.surfaceID,
+                  let profile = configuration.profile(id: agentID) else {
+                failures.append(
+                    AgentQueueAgentPreparationFailure(
+                        agentID: agentID,
+                        surfaceID: bindings.first(where: { $0.agentID == agentID })?.surfaceID,
+                        message: "Missing Agent Queue binding, surface, or profile for \(agentID)."
+                    )
+                )
+                continue
+            }
+            do {
+                try await prepareBoundAgent(
+                    agentID: agentID,
+                    bindingID: binding.bindingID,
+                    surfaceID: surfaceID
+                )
+                let prompt = instructionBuilder.bootstrap(
+                    agentID: agentID,
+                    role: binding.role,
+                    bindingID: binding.bindingID,
+                    profile: profile
+                )
+                try await driver.submitText(prompt, to: surfaceID)
+            } catch {
+                failures.append(
+                    AgentQueueAgentPreparationFailure(
+                        agentID: agentID,
+                        surfaceID: surfaceID,
+                        message: error.localizedDescription
+                    )
+                )
+            }
+        }
+        return failures
+    }
+
+    private func prepareBoundAgent(
+        agentID: String,
+        bindingID: String,
+        surfaceID: UUID
+    ) async throws {
+        guard driver.isTerminalSurface(surfaceID) else {
+            throw AgentQueuePaneAdapterError.surfaceNotTerminal(surfaceID)
+        }
+        switch await driver.codexReadiness(surfaceID: surfaceID) {
+        case .idle:
+            return
+        case .busy, .starting:
+            try await waitForIdle(surfaceID: surfaceID)
+        case .absent:
+            if driver.shellActivity(surfaceID: surfaceID) != .promptIdle {
+                try await waitForShellPrompt(surfaceID: surfaceID)
+            }
+            try await driver.submitShellCommand(
+                instructionBuilder.launchCommand(agentID: agentID, bindingID: bindingID),
+                to: surfaceID
+            )
+            try await waitForIdle(surfaceID: surfaceID)
+        }
     }
 
     func prepare(

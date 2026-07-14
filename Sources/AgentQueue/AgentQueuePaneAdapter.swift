@@ -20,7 +20,21 @@ enum AgentQueueObservedCodexState: Equatable, Sendable {
     case needsInput
 }
 
-enum AgentQueueCodexReadinessClassifier {
+struct AgentQueueCodexReadinessClassifier: Sendable {
+    func classify(
+        observedState: AgentQueueObservedCodexState?,
+        shellActivity: AgentQueueShellActivity
+    ) -> AgentQueueCodexReadiness {
+        switch observedState {
+        case .idle:
+            return .idle
+        case .working, .needsInput:
+            return .busy
+        case nil:
+            return shellActivity == .promptIdle ? .absent : .starting
+        }
+    }
+
     static func classify(
         observedState: AgentQueueObservedCodexState?,
         shellActivity: AgentQueueShellActivity,
@@ -28,22 +42,22 @@ enum AgentQueueCodexReadinessClassifier {
         visibleReadyFallbackAllowed: Bool = true,
         observedIdleAllowed: Bool = true
     ) -> AgentQueueCodexReadiness {
-        switch observedState {
-        case .idle:
-            return observedIdleAllowed ? .idle : .starting
-        case .working, .needsInput:
-            return .busy
-        case nil:
-            if visibleReadyFallbackAllowed,
-               shellActivity == .commandRunning,
-               visibleText.contains("OpenAI Codex"),
-               visibleText.split(whereSeparator: \Character.isNewline).contains(where: { line in
-                   line.contains("· Ready ·")
-               }) {
-                return .idle
-            }
-            return shellActivity == .promptIdle ? .absent : .starting
+        if observedState == .idle, !observedIdleAllowed {
+            return .starting
         }
+        if observedState == nil,
+           visibleReadyFallbackAllowed,
+           shellActivity == .commandRunning,
+           visibleText.contains("OpenAI Codex"),
+           visibleText.split(whereSeparator: \Character.isNewline).contains(where: {
+               $0.contains("· Ready ·")
+           }) {
+            return .idle
+        }
+        return AgentQueueCodexReadinessClassifier().classify(
+            observedState: observedState,
+            shellActivity: shellActivity
+        )
     }
 }
 
@@ -101,7 +115,6 @@ enum AgentQueuePaneAdapterError: LocalizedError, Equatable {
 @MainActor
 final class AppAgentQueuePaneAdapter: AgentQueuePaneAdapting {
     private weak var tabManager: TabManager?
-    private var visibleReadyFallbackBlockedSurfaceIDs: Set<UUID> = []
 
     init(tabManager: TabManager) {
         self.tabManager = tabManager
@@ -120,9 +133,6 @@ final class AppAgentQueuePaneAdapter: AgentQueuePaneAdapting {
             throw AgentQueuePaneAdapterError.surfaceUnavailable(surfaceID)
         }
         terminalPanel.surface.forceRefresh(reason: "agentQueue.submitText")
-        if text.trimmingCharacters(in: .whitespacesAndNewlines) != "codex" {
-            visibleReadyFallbackBlockedSurfaceIDs.insert(surfaceID)
-        }
         return AgentQueueSendResult(surfaceID: surfaceID, queued: false)
     }
 
@@ -188,7 +198,7 @@ final class AppAgentQueuePaneAdapter: AgentQueuePaneAdapting {
     func codexReadiness(surfaceID: UUID) async -> AgentQueueCodexReadiness {
         guard let terminalPanel = terminalPanel(surfaceID: surfaceID) else { return .absent }
         let shellActivity = shellActivity(for: terminalPanel)
-        let visibleText = visibleText(for: terminalPanel)
+        let classifier = AgentQueueCodexReadinessClassifier()
         if let service = TerminalController.shared.agentChatTranscriptService {
             _ = await service.observeAgentProcessesForListing(
                 surfaceIDs: [surfaceID],
@@ -199,56 +209,31 @@ final class AppAgentQueuePaneAdapter: AgentQueuePaneAdapting {
                     record.state != .ended &&
                     record.surfaceID.flatMap(UUID.init(uuidString:)) == surfaceID
             }) {
-                let observedIdleAllowed = !visibleReadyFallbackBlockedSurfaceIDs.contains(surfaceID)
                 let observedState: AgentQueueObservedCodexState
                 switch record.state {
                 case .idle:
                     observedState = .idle
                 case .working:
                     observedState = .working
-                    visibleReadyFallbackBlockedSurfaceIDs.remove(surfaceID)
                 case .needsInput:
                     observedState = .needsInput
-                    visibleReadyFallbackBlockedSurfaceIDs.remove(surfaceID)
                 case .ended:
-                    return AgentQueueCodexReadinessClassifier.classify(
+                    return classifier.classify(
                         observedState: nil,
-                        shellActivity: shellActivity,
-                        visibleText: visibleText
+                        shellActivity: shellActivity
                     )
                 }
-                return AgentQueueCodexReadinessClassifier.classify(
+                return classifier.classify(
                     observedState: observedState,
-                    shellActivity: shellActivity,
-                    visibleText: visibleText,
-                    observedIdleAllowed: observedIdleAllowed
+                    shellActivity: shellActivity
                 )
             }
         }
 
-        return AgentQueueCodexReadinessClassifier.classify(
+        return classifier.classify(
             observedState: nil,
-            shellActivity: shellActivity,
-            visibleText: visibleText,
-            visibleReadyFallbackAllowed: !visibleReadyFallbackBlockedSurfaceIDs.contains(surfaceID)
+            shellActivity: shellActivity
         )
-    }
-
-    private func visibleText(for terminalPanel: TerminalPanel) -> String {
-        guard let rawSnapshot = TerminalController.shared.readTerminalTextRawSnapshot(
-            terminalPanel: terminalPanel,
-            includeScrollback: false
-        ) else {
-            return ""
-        }
-        guard case .success(let value) = TerminalController.terminalTextPayload(
-            from: rawSnapshot,
-            includeScrollback: false,
-            lineLimit: 40
-        ) else {
-            return ""
-        }
-        return value.text
     }
 
     private func terminalPanel(surfaceID: UUID) -> TerminalPanel? {
