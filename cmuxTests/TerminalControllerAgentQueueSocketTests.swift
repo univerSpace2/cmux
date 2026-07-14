@@ -20,7 +20,7 @@ struct TerminalControllerAgentQueueSocketTests {
             let manager = TabManager(autoWelcomeIfNeeded: false)
             let workspace = try #require(manager.tabs.first)
             let surfaceID = try #require(workspace.focusedPanelId)
-            let paneID = workspace.bonsplitController.focusedPaneId ?? UUID()
+            let paneID = workspace.bonsplitController.focusedPaneId?.id ?? UUID()
             let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
             TerminalController.shared.setActiveTabManager(manager)
             defer {
@@ -276,7 +276,7 @@ private struct FocusSnapshot: Equatable {
     @MainActor
     init(manager: TabManager, workspace: Workspace) {
         workspaceID = manager.selectedWorkspace?.id
-        paneID = workspace.bonsplitController.focusedPaneId
+        paneID = workspace.bonsplitController.focusedPaneId?.id
         surfaceID = workspace.focusedPanelId
     }
 }

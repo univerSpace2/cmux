@@ -285,6 +285,10 @@ class TerminalController {
     /// `init`; its `context` is wired to `self` once `self` is available.
     let controlCommandCoordinator = ControlCommandCoordinator()
 
+    /// Runtime Agent Queue routing is independent from workspace selection.
+    nonisolated let agentQueueCoordinatorRegistry: AgentQueueCoordinatorRegistry
+    let agentQueueControllerFactory: AgentQueueControllerFactory
+
     private struct V2BrowserElementRefEntry {
         let surfaceId: UUID
         let selector: String
@@ -360,6 +364,11 @@ class TerminalController {
         self.passwordStore = passwordStore
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
+        let agentQueueCoordinatorRegistry = AgentQueueCoordinatorRegistry()
+        self.agentQueueCoordinatorRegistry = agentQueueCoordinatorRegistry
+        self.agentQueueControllerFactory = AgentQueueControllerFactory(
+            registry: agentQueueCoordinatorRegistry
+        )
         let serverEventTarget = ServerEventTarget()
         let socketServer = SocketControlServer(
             transport: transport,
@@ -1066,6 +1075,21 @@ class TerminalController {
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
             if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
                 return v2Result(id: request.id, workspaceParamError)
+            }
+            if request.method.hasPrefix("agent_queue.") {
+                return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                    guard let result = await self.controlCommandCoordinator.handleAgentQueue(
+                        parsedRequest,
+                        context: self
+                    ) else {
+                        return .err(
+                            code: "method_not_found",
+                            message: "Unknown Agent Queue method",
+                            data: nil
+                        )
+                    }
+                    return Self.v2CallResult(result)
+                }
             }
             if Self.socketWorkerCoordinatorHopMethods.contains(request.method) {
                 // Mirror processParsedV2Command's tail: one main hop for the
@@ -3484,6 +3508,21 @@ class TerminalController {
     enum V2CallResult {
         case ok(Any)
         case err(code: String, message: String, data: Any?)
+    }
+
+    private nonisolated static func v2CallResult(
+        _ result: ControlCallResult
+    ) -> V2CallResult {
+        switch result {
+        case .ok(let value):
+            return .ok(value.foundationObject)
+        case .err(let code, let message, let data):
+            return .err(
+                code: code,
+                message: message,
+                data: data?.foundationObject
+            )
+        }
     }
 
     private nonisolated func v2Result(id: Any?, _ res: V2CallResult) -> String {

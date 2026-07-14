@@ -408,7 +408,7 @@ struct RightSidebarPanelView: View {
             case .agentQueue:
                 if let workspace = tabManager.selectedWorkspace {
                     AgentQueueSidebarView(
-                        controller: AgentQueueControllerFactory.shared.controller(
+                        controller: TerminalController.shared.agentQueueControllerFactory.controller(
                             workspace: workspace,
                             tabManager: tabManager
                         )

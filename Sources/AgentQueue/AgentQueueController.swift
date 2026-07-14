@@ -619,6 +619,7 @@ final class AgentQueueController {
     func start() async {
         if let coordinator {
             guard stateTask == nil else { return }
+            state = await coordinator.snapshot()
             let updates = await coordinator.stateUpdates()
             effectExecutor?.start()
             stateTask = Task { [weak self] in
@@ -1386,18 +1387,118 @@ private extension AgentWorkerStatus {
 
 @MainActor
 final class AgentQueueControllerFactory {
-    static let shared = AgentQueueControllerFactory()
-
     private var controllers: [UUID: AgentQueueController] = [:]
-    private let store = AgentQueueStore()
+    private let registry: AgentQueueCoordinatorRegistry
+    private let persistence: any AgentQueuePersisting
     private let roleSkillInstaller = AgentQueueRoleSkillInstaller()
     private let skillCatalog = AgentQueueSkillCatalog()
+
+    init(
+        registry: AgentQueueCoordinatorRegistry,
+        persistence: any AgentQueuePersisting = AgentQueueFilePersistence()
+    ) {
+        self.registry = registry
+        self.persistence = persistence
+    }
 
     func controller(workspace: Workspace, tabManager: TabManager) -> AgentQueueController {
         if let existing = controllers[workspace.id] {
             return existing
         }
 
+        let runtime = makeRuntime(
+            workspace: workspace,
+            tabManager: tabManager,
+            persistenceID: workspace.stableId,
+            legacyWorkspaceID: nil
+        )
+        controllers[workspace.id] = runtime.controller
+        Task { [weak self, weak controller = runtime.controller] in
+            guard let self, let controller else { return }
+            try? await runtime.coordinator.restore()
+            await registry.register(runtime.coordinator, workspaceID: workspace.id)
+            await controller.start()
+        }
+        return runtime.controller
+    }
+
+    func restorePersistedControllers(
+        _ candidates: [AgentQueueRestoreCandidate]
+    ) async {
+        for candidate in candidates where controllers[candidate.workspace.id] == nil {
+            let persistence = persistence
+            let persistenceID = candidate.persistenceID
+            let legacyWorkspaceID = candidate.legacyWorkspaceID
+            let hasPersistedState = await Task.detached(priority: .utility) {
+                do {
+                    return try persistence.load(
+                        persistenceID: persistenceID,
+                        legacyWorkspaceID: legacyWorkspaceID
+                    ) != nil
+                } catch {
+                    return false
+                }
+            }.value
+            guard hasPersistedState else { continue }
+
+            let runtime = makeRuntime(
+                workspace: candidate.workspace,
+                tabManager: candidate.tabManager,
+                persistenceID: persistenceID,
+                legacyWorkspaceID: legacyWorkspaceID
+            )
+            controllers[candidate.workspace.id] = runtime.controller
+            do {
+                try await runtime.coordinator.restore()
+            } catch {
+                controllers.removeValue(forKey: candidate.workspace.id)
+                continue
+            }
+            await registry.register(
+                runtime.coordinator,
+                workspaceID: candidate.workspace.id
+            )
+            await runtime.controller.start()
+        }
+    }
+
+    private func makeRuntime(
+        workspace: Workspace,
+        tabManager: TabManager,
+        persistenceID: UUID,
+        legacyWorkspaceID: UUID?
+    ) -> (controller: AgentQueueController, coordinator: AgentQueueCoordinator) {
+        let initialState = makeInitialState(workspace: workspace)
+        let paneAdapter = AppAgentQueuePaneAdapter(tabManager: tabManager)
+        let coordinator = AgentQueueCoordinator(
+            workspaceID: workspace.id,
+            persistenceID: persistenceID,
+            legacyWorkspaceID: legacyWorkspaceID,
+            initialState: initialState,
+            persistence: persistence
+        )
+        let effectExecutor = AgentQueueEffectExecutor(
+            coordinator: coordinator,
+            paneAdapter: paneAdapter
+        )
+        let controller = AgentQueueController(
+            initialState: initialState,
+            paneAdapter: paneAdapter,
+            store: nil,
+            roleSkillInstaller: roleSkillInstaller,
+            workerPreparer: AgentQueueWorkerPreparationService(
+                workspace: workspace,
+                tabManager: tabManager
+            ),
+            skillCatalog: skillCatalog,
+            skillRootDirectory: workspace.currentDirectory,
+            coordinator: coordinator,
+            effectExecutor: effectExecutor
+        )
+        return (controller, coordinator)
+    }
+
+    private func makeInitialState(workspace: Workspace) -> AgentQueueState {
         let currentNow = Date()
         let plannerSurfaceID = workspace.focusedPanelId
             ?? UUID()
@@ -1409,35 +1510,17 @@ final class AgentQueueControllerFactory {
             createdAt: currentNow,
             updatedAt: currentNow
         )
-        let controller = AgentQueueController(
-            initialState: AgentQueueState(
-                queue: queue,
-                tasks: [],
-                workers: [],
-                events: [],
-                preparation: AgentQueuePreparationState(
-                    configuration: .defaultConfiguration,
-                    phase: .notPrepared,
-                    completedWorkerCount: 0,
-                    errorMessage: nil
-                )
-            ),
-            paneAdapter: AppAgentQueuePaneAdapter(tabManager: tabManager),
-            store: store,
-            roleSkillInstaller: roleSkillInstaller,
-            workerPreparer: AgentQueueWorkerPreparationService(
-                workspace: workspace,
-                tabManager: tabManager
-            ),
-            skillCatalog: skillCatalog,
-            skillRootDirectory: workspace.currentDirectory
+        return AgentQueueState(
+            queue: queue,
+            tasks: [],
+            workers: [],
+            events: [],
+            preparation: AgentQueuePreparationState(
+                configuration: .defaultConfiguration,
+                phase: .notPrepared,
+                completedWorkerCount: 0,
+                errorMessage: nil
+            )
         )
-        controllers[workspace.id] = controller
-        Task { [weak controller] in
-            guard let controller else { return }
-            await controller.restorePersistedState()
-            controller.startMonitoring()
-        }
-        return controller
     }
 }

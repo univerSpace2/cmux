@@ -1041,6 +1041,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
     var isApplyingSessionRestore = false
+    private var pendingAgentQueueRestoreCandidates: [AgentQueueRestoreCandidate] = []
     /// Durable navigation links that arrived before startup restore registered
     /// their target workspaces.
     var pendingStartupNavigationURLRequests: [CmuxNavigationURLRequest] = []
@@ -3391,6 +3392,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
+        let agentQueueCandidates = pendingAgentQueueRestoreCandidates
+        pendingAgentQueueRestoreCandidates.removeAll(keepingCapacity: true)
+        if !agentQueueCandidates.isEmpty {
+            Task { @MainActor in
+                await TerminalController.shared.agentQueueControllerFactory
+                    .restorePersistedControllers(agentQueueCandidates)
+            }
+        }
         startupSessionSnapshot = nil
         isApplyingSessionRestore = false
         if isScreenChangeCaptureSuppressed {
@@ -3472,6 +3481,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         context.tabManager.restoreSessionSnapshot(snapshot.tabManager)
+        pendingAgentQueueRestoreCandidates.append(contentsOf: Self.agentQueueRestoreCandidates(
+            snapshot: snapshot.tabManager,
+            tabManager: context.tabManager
+        ))
         // Seed the in-memory per-config ring from the restored snapshot so the
         // window can return to remembered frames on later configuration switches.
         if let configFrames = snapshot.configFrames {
@@ -3508,6 +3521,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             availableDisplays: displays.available,
             fallbackDisplay: displays.fallback
         )
+    }
+
+    @MainActor
+    static func agentQueueRestoreCandidates(
+        snapshot: SessionTabManagerSnapshot,
+        tabManager: TabManager
+    ) -> [AgentQueueRestoreCandidate] {
+        zip(snapshot.workspaces, tabManager.tabs).map { workspaceSnapshot, workspace in
+            AgentQueueRestoreCandidate(
+                workspace: workspace,
+                tabManager: tabManager,
+                persistenceID: workspace.stableId,
+                legacyWorkspaceID: workspaceSnapshot.stableId == workspace.stableId
+                    ? workspaceSnapshot.workspaceId
+                    : nil
+            )
+        }
     }
 
     nonisolated static func resolvedStartupPrimaryWindowFrame(
