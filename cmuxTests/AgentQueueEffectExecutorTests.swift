@@ -126,8 +126,8 @@ import Testing
         let executor = AgentQueueEffectExecutor(coordinator: coordinator, paneAdapter: pane)
         let controller = AgentQueueController(
             initialState: fixture.state,
+            plannerSurfaceID: fixture.plannerSurfaceID,
             paneAdapter: pane,
-            store: nil,
             coordinator: coordinator,
             effectExecutor: executor
         )
@@ -137,7 +137,7 @@ import Testing
         for _ in 0..<20 where controller.state.queue.status != .paused {
             await Task.yield()
         }
-        controller.stopMonitoring()
+        controller.stop()
 
         #expect(controller.state.queue.status == .paused)
         #expect(controller.state.revision == 1)
@@ -208,7 +208,6 @@ private struct EffectExecutorFixture {
         let queue = AgentQueue(
             id: "queue-1",
             workspaceID: workspaceID,
-            plannerSurfaceID: plannerSurfaceID,
             status: .running,
             createdAt: now,
             updatedAt: now
@@ -318,10 +317,6 @@ private final class RecordingEffectPaneAdapter: AgentQueuePaneAdapting {
 
     func submitShellCommand(_ command: String, to surfaceID: UUID) async throws -> AgentQueueSendResult {
         try await submitText(command, to: surfaceID)
-    }
-
-    func readText(surfaceID: UUID, lines: Int) async throws -> AgentQueueSurfaceTextSnapshot {
-        AgentQueueSurfaceTextSnapshot(surfaceID: surfaceID, text: "", capturedAt: Date())
     }
 
     func codexReadiness(surfaceID: UUID) async -> AgentQueueCodexReadiness {

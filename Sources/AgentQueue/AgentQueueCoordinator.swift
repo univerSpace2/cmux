@@ -205,6 +205,62 @@ actor AgentQueueCoordinator {
         _ = try commit(.bindingsPrepared(bindings))
     }
 
+    func updatePreparation(
+        _ preparation: AgentQueuePreparationState,
+        workers: [AgentWorker]? = nil,
+        queueStatus: AgentQueueStatus? = nil
+    ) throws -> AgentQueueState {
+        if let workers {
+            guard workers.allSatisfy({ $0.workspaceID == workspaceID }),
+                  Set(workers.map(\.id)).count == workers.count else {
+                throw AgentQueueCoordinatorError.invalidRequest("preparation_workers")
+            }
+        }
+
+        var next = state
+        next.preparation = preparation
+        if let workers {
+            next.workers = workers
+        }
+        if let queueStatus {
+            next.queue.status = queueStatus
+        }
+        next.queue.updatedAt = now()
+        return try commitState(next, effects: []).state
+    }
+
+    func setExecutionMode(
+        taskID: String,
+        mode: AgentTaskExecutionMode
+    ) throws -> AgentQueueState {
+        guard let taskIndex = state.tasks.firstIndex(where: { $0.id == taskID }) else {
+            throw AgentQueueCoordinatorError.notFound("task")
+        }
+        guard state.tasks[taskIndex].status == .queued else {
+            throw AgentQueueCoordinatorError.conflict("task_status")
+        }
+        var next = state
+        next.tasks[taskIndex].executionMode = mode
+        next.queue.updatedAt = now()
+        return try commitState(next, effects: []).state
+    }
+
+    func recordObservedSession(
+        bindingID: String,
+        sessionID: String
+    ) throws -> AgentQueueState {
+        guard !sessionID.isEmpty,
+              let bindingIndex = state.bindings.firstIndex(where: {
+                  $0.bindingID == bindingID
+              }) else {
+            throw AgentQueueCoordinatorError.notFound("binding")
+        }
+        var next = state
+        next.bindings[bindingIndex].observedSessionID = sessionID
+        next.bindings[bindingIndex].lastSeenAt = now()
+        return try commitState(next, effects: []).state
+    }
+
     func markReady(
         agentID: String,
         role: AgentQueueAgentRole,
@@ -369,19 +425,27 @@ actor AgentQueueCoordinator {
     }
 
     private func commit(_ event: AgentQueueInputEvent) throws -> AgentQueueReduceResult {
-        var reduced = core.reduce(state: state, event: event, now: now())
-        reduced.state.schemaVersion = AgentQueueState.currentSchemaVersion
-        reduced.state.revision = state.revision + 1
-        let data = try JSONEncoder.agentQueue.encode(reduced.state)
+        let reduced = core.reduce(state: state, event: event, now: now())
+        return try commitState(reduced.state, effects: reduced.effects)
+    }
+
+    private func commitState(
+        _ proposedState: AgentQueueState,
+        effects: [AgentQueueSideEffect]
+    ) throws -> AgentQueueReduceResult {
+        var next = proposedState
+        next.schemaVersion = AgentQueueState.currentSchemaVersion
+        next.revision = state.revision + 1
+        let data = try JSONEncoder.agentQueue.encode(next)
         try persistence.save(data, persistenceID: persistenceID)
-        state = reduced.state
+        state = next
         yieldState(state)
-        for effect in reduced.effects {
+        for effect in effects {
             for continuation in effectContinuations.values {
                 continuation.yield(effect)
             }
         }
-        return reduced
+        return AgentQueueReduceResult(state: next, effects: effects)
     }
 
     private func authorizePlanner(_ caller: AgentQueueCallerContext) throws {

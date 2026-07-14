@@ -73,7 +73,13 @@ struct AgentQueueStateMigration: Sendable {
             worker.currentTaskID = nil
             return worker
         }
-        var queue = legacy.queue
+        var queue = AgentQueue(
+            id: legacy.queue.id,
+            workspaceID: legacy.queue.workspaceID,
+            status: legacy.queue.status,
+            createdAt: legacy.queue.createdAt,
+            updatedAt: legacy.queue.updatedAt
+        )
         if migratedInFlight || plannerBinding.readiness != .ready {
             queue.status = .paused
         }
@@ -103,8 +109,7 @@ struct AgentQueueStateMigration: Sendable {
             submissions: [],
             reports: [],
             events: legacy.events,
-            preparation: preparation,
-            planningRequest: nil
+            preparation: preparation
         )
     }
 }
@@ -114,10 +119,18 @@ private struct SchemaVersionProbe: Decodable {
 }
 
 private struct LegacyAgentQueueStateV1: Decodable {
-    var queue: AgentQueue
+    var queue: LegacyAgentQueueV1
     var tasks: [AgentTask]
     var workers: [AgentWorker]
     var events: [AgentQueueLogEvent]
     var preparation: AgentQueuePreparationState?
-    var planningRequest: AgentQueuePlanningRequest?
+}
+
+private struct LegacyAgentQueueV1: Decodable {
+    var id: String
+    var workspaceID: UUID
+    var plannerSurfaceID: UUID
+    var status: AgentQueueStatus
+    var createdAt: Date
+    var updatedAt: Date
 }

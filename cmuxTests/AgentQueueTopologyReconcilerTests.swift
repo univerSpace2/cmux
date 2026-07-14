@@ -52,10 +52,13 @@ struct AgentQueueTopologyReconcilerTests {
         let fixture = AgentQueueCoreFixture.make(taskCount: 0, workerCount: 1)
         let coordinator = try makeCoordinator(state: fixture.state)
         let reconciler = makeReconciler(coordinator: coordinator, live: [])
+        let plannerSurfaceID = try #require(
+            fixture.state.bindings.first(where: { $0.role == .planner })?.surfaceID
+        )
 
         await reconciler.handleSurfaceClosed(event(
             workspaceID: fixture.state.queue.workspaceID,
-            surfaceID: fixture.state.queue.plannerSurfaceID
+            surfaceID: plannerSurfaceID
         ))
 
         let state = await coordinator.snapshot()
@@ -94,8 +97,11 @@ struct AgentQueueTopologyReconcilerTests {
         var fixture = AgentQueueCoreFixture.make(taskCount: 0, workerCount: 1)
         fixture.state.bindings[1].observedSessionID = "session-current"
         let coordinator = try makeCoordinator(state: fixture.state)
+        let plannerSurfaceID = try #require(
+            fixture.state.bindings.first(where: { $0.role == .planner })?.surfaceID
+        )
         let reconciler = makeReconciler(coordinator: coordinator, live: [
-            fixture.state.queue.plannerSurfaceID,
+            plannerSurfaceID,
             fixture.state.workers[0].surfaceID,
         ])
 
@@ -120,12 +126,15 @@ struct AgentQueueTopologyReconcilerTests {
         let fixture = AgentQueueCoreFixture.make(taskCount: 0, workerCount: 1)
         let coordinator = try makeCoordinator(state: fixture.state)
         var inventoryReads = 0
+        let plannerSurfaceID = try #require(
+            fixture.state.bindings.first(where: { $0.role == .planner })?.surfaceID
+        )
         let reconciler = AgentQueueTopologyReconciler(
             workspaceID: fixture.state.queue.workspaceID,
             coordinator: coordinator,
             liveSurfaceIDs: {
                 inventoryReads += 1
-                return [fixture.state.queue.plannerSurfaceID]
+                return [plannerSurfaceID]
             },
             endedBindingIDs: { [] }
         )

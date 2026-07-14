@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6,8 +7,10 @@ import XCTest
 @testable import cmux
 #endif
 
-final class AgentQueueInstructionBuilderTests: XCTestCase {
-    func testWorkerInstructionContainsTaskMarkerAndReportFormat() {
+@Suite("Agent Queue instruction builder")
+struct AgentQueueInstructionBuilderTests {
+    @Test
+    func workerInstructionUsesNonDetectableReportTemplateWithoutRepeatingRole() {
         let now = Date(timeIntervalSince1970: 1_782_998_400)
         let task = AgentTask(
             id: "T-20260709-0004",
@@ -49,28 +52,23 @@ final class AgentQueueInstructionBuilderTests: XCTestCase {
                 profile: profile
             )
         )
-
-        XCTAssertTrue(
-            text.hasPrefix(
-                "$cmux-agent-queue-worker $sample-domain-skill $careful\n\n" +
-                    "[AGENT_QUEUE_ROLE_START]\n" +
-                    "Inspect first, then implement the smallest safe change.\n"
-            )
-        )
-        XCTAssertFalse(text.contains("[/AGENT_QUEUE_ROLE]"))
-        XCTAssertFalse(text.contains("[AGENT_QUEUE_ROLE_END]"))
-        XCTAssertTrue(text.contains("[AGENT_QUEUE_TASK]"))
-        XCTAssertTrue(text.contains("task_id: T-20260709-0004"))
-        XCTAssertTrue(text.contains("worker_surface_id: surface:33333333-3333-3333-3333-333333333333"))
-        XCTAssertTrue(text.contains("report_target: current_pane"))
-        XCTAssertTrue(text.contains("완료 보고 [T-20260709-0004]:"))
-        XCTAssertTrue(text.contains("현재 대화"))
-        XCTAssertFalse(text.contains("planner_surface_id"))
-        XCTAssertFalse(text.localizedCaseInsensitiveContains("cmux send"))
-        XCTAssertTrue(text.hasSuffix("\n"))
+        #expect(!text.contains("$cmux-agent-queue-worker"))
+        #expect(!text.contains("$sample-domain-skill"))
+        #expect(!text.contains("[AGENT_QUEUE_ROLE_START]"))
+        #expect(text.contains("[AGENT_QUEUE_TASK]"))
+        #expect(text.contains("task_id: T-20260709-0004"))
+        #expect(text.contains("worker_surface_id: surface:33333333-3333-3333-3333-333333333333"))
+        #expect(text.contains("report_target: current_pane"))
+        #expect(text.contains("완료 보고 [task_id]:"))
+        #expect(!text.contains("완료 보고 [T-20260709-0004]:"))
+        #expect(text.contains("현재 대화"))
+        #expect(!text.contains("planner_surface_id"))
+        #expect(!text.localizedCaseInsensitiveContains("cmux send"))
+        #expect(text.hasSuffix("\n"))
     }
 
-    func testRecoveryPromptForcesThreeAllowedStatusesInCurrentPaneWithSkills() {
+    @Test
+    func recoveryPromptForcesThreeAllowedStatusesWithoutRepeatingRole() {
         let task = AgentTask.queueTestTask(id: "T-20260709-0007")
         let profile = AgentQueueAgentProfile(
             id: "worker-1",
@@ -85,21 +83,21 @@ final class AgentQueueInstructionBuilderTests: XCTestCase {
 
         let text = AgentQueueInstructionBuilder.recoveryPrompt(task: task, profile: profile)
 
-        XCTAssertTrue(text.hasPrefix("$cmux-agent-queue-worker $sample-domain-skill\n\n"))
-        XCTAssertTrue(text.contains("[AGENT_QUEUE_ROLE_START]\nOwn recovery evidence."))
-        XCTAssertFalse(text.contains("[/AGENT_QUEUE_ROLE]"))
-        XCTAssertFalse(text.contains("[AGENT_QUEUE_ROLE_END]"))
-        XCTAssertTrue(text.contains("복구 요청 [T-20260709-0007]"))
-        XCTAssertTrue(text.contains("- completed: 완료 보고 전문"))
-        XCTAssertTrue(text.contains("- blocked: 막힌 이유"))
-        XCTAssertTrue(text.contains("- running: 현재 진행 상황과 예상 남은 작업"))
-        XCTAssertTrue(text.contains("현재 대화"))
-        XCTAssertFalse(text.localizedCaseInsensitiveContains("planner surface"))
-        XCTAssertFalse(text.localizedCaseInsensitiveContains("cmux send"))
-        XCTAssertTrue(text.hasSuffix("\n"))
+        #expect(!text.contains("$cmux-agent-queue-worker"))
+        #expect(!text.contains("$sample-domain-skill"))
+        #expect(!text.contains("[AGENT_QUEUE_ROLE_START]"))
+        #expect(text.contains("복구 요청 [T-20260709-0007]"))
+        #expect(text.contains("- completed: 완료 보고 전문"))
+        #expect(text.contains("- blocked: 막힌 이유"))
+        #expect(text.contains("- running: 현재 진행 상황과 예상 남은 작업"))
+        #expect(text.contains("현재 대화"))
+        #expect(!text.localizedCaseInsensitiveContains("planner surface"))
+        #expect(!text.localizedCaseInsensitiveContains("cmux send"))
+        #expect(text.hasSuffix("\n"))
     }
 
-    func testPlannerInstructionUsesPlannerSkillsAndRole() {
+    @Test
+    func plannerInstructionDoesNotRepeatSkillsOrRole() {
         let profile = AgentQueueAgentProfile(
             id: "planner",
             additionalSkills: [
@@ -110,60 +108,19 @@ final class AgentQueueInstructionBuilderTests: XCTestCase {
             ],
             rolePrompt: "Review worker evidence before accepting completion."
         )
+        let instruction = "자동 복구 보고 [T-20260709-0008]: done"
 
         let text = AgentQueueInstructionBuilder.plannerInstruction(
-            "자동 복구 보고 [T-20260709-0008]: done",
+            instruction,
             profile: profile
         )
 
-        XCTAssertTrue(text.hasPrefix("$cmux-agent-queue-planner $product-director\n\n"))
-        XCTAssertTrue(
-            text.contains(
-                "[AGENT_QUEUE_ROLE_START]\n" +
-                    "Review worker evidence before accepting completion."
-            )
-        )
-        XCTAssertFalse(text.contains("[/AGENT_QUEUE_ROLE]"))
-        XCTAssertFalse(text.contains("[AGENT_QUEUE_ROLE_END]"))
-        XCTAssertTrue(text.hasSuffix("자동 복구 보고 [T-20260709-0008]: done"))
+        #expect(text == instruction)
+        #expect(!text.contains("$cmux-agent-queue-planner"))
+        #expect(!text.contains("$product-director"))
+        #expect(!text.contains("[AGENT_QUEUE_ROLE_START]"))
     }
 
-    func testPlannerRequestContainsGoalRequestIDAndResponseContract() {
-        let requestID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
-        let profile = AgentQueueAgentProfile(
-            id: "planner",
-            additionalSkills: [
-                AgentQueueSkillSelection(
-                    name: "product-director",
-                    sourcePath: "/tmp/product-director/SKILL.md"
-                ),
-            ],
-            rolePrompt: "Break goals into executable queue work."
-        )
-
-        let text = AgentQueueInstructionBuilder.plannerRequest(
-            goal: "Implement search.\nCover errors.",
-            requestID: requestID,
-            profile: profile
-        )
-
-        XCTAssertTrue(text.hasPrefix("$cmux-agent-queue-planner $product-director\n\n"))
-        XCTAssertTrue(text.contains("[AGENT_QUEUE_ROLE_START]"))
-        XCTAssertTrue(text.contains("[AGENT_QUEUE_PLAN_REQUEST]"))
-        XCTAssertTrue(text.contains("request_id: 11111111-2222-3333-4444-555555555555"))
-        XCTAssertTrue(text.contains("Implement search.\nCover errors."))
-        XCTAssertTrue(text.contains("[AGENT_QUEUE_TASKS]"))
-        XCTAssertTrue(
-            text.contains("\"request_id\":\"11111111-2222-3333-4444-555555555555\"")
-        )
-        XCTAssertTrue(text.contains("\"space_encoding\":\"unicode_escape\""))
-        XCTAssertTrue(text.contains("작업\\u0020제목"))
-        XCTAssertFalse(
-            text.contains("[/AGENT_QUEUE_TASKS]"),
-            "The submitted request must not echo a complete response block that the queue can import."
-        )
-        XCTAssertFalse(text.contains("[/AGENT_QUEUE_ROLE]"))
-    }
 }
 
 private extension AgentTask {

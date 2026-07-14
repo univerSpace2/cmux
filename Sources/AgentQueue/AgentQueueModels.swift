@@ -57,7 +57,6 @@ enum AgentQueueLogEventType: String, Codable, Equatable, Sendable {
 struct AgentQueue: Identifiable, Codable, Equatable, Sendable {
     var id: String
     var workspaceID: UUID
-    var plannerSurfaceID: UUID
     var status: AgentQueueStatus
     var createdAt: Date
     var updatedAt: Date
@@ -171,7 +170,6 @@ struct AgentQueueState: Codable, Equatable, Sendable {
     var reports: [AgentQueueTaskReport]
     var events: [AgentQueueLogEvent]
     var preparation: AgentQueuePreparationState?
-    var planningRequest: AgentQueuePlanningRequest?
 
     init(
         schemaVersion: Int = AgentQueueState.currentSchemaVersion,
@@ -183,8 +181,7 @@ struct AgentQueueState: Codable, Equatable, Sendable {
         submissions: [AgentQueueSubmission] = [],
         reports: [AgentQueueTaskReport] = [],
         events: [AgentQueueLogEvent],
-        preparation: AgentQueuePreparationState? = nil,
-        planningRequest: AgentQueuePlanningRequest? = nil
+        preparation: AgentQueuePreparationState? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.revision = revision
@@ -196,12 +193,11 @@ struct AgentQueueState: Codable, Equatable, Sendable {
         self.reports = reports
         self.events = events
         self.preparation = preparation
-        self.planningRequest = planningRequest
     }
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, revision, queue, tasks, workers, bindings
-        case submissions, reports, events, preparation, planningRequest
+        case submissions, reports, events, preparation
     }
 
     init(from decoder: Decoder) throws {
@@ -216,8 +212,7 @@ struct AgentQueueState: Codable, Equatable, Sendable {
             submissions: try container.decodeIfPresent([AgentQueueSubmission].self, forKey: .submissions) ?? [],
             reports: try container.decodeIfPresent([AgentQueueTaskReport].self, forKey: .reports) ?? [],
             events: try container.decode([AgentQueueLogEvent].self, forKey: .events),
-            preparation: try container.decodeIfPresent(AgentQueuePreparationState.self, forKey: .preparation),
-            planningRequest: try container.decodeIfPresent(AgentQueuePlanningRequest.self, forKey: .planningRequest)
+            preparation: try container.decodeIfPresent(AgentQueuePreparationState.self, forKey: .preparation)
         )
     }
 }

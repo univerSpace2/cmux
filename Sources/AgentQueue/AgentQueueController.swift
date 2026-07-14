@@ -7,185 +7,136 @@ final class AgentQueueController {
     private(set) var state: AgentQueueState
     private(set) var pendingRoleSkillChanges: [AgentQueueRoleSkillChange] = []
 
-    @ObservationIgnored private let coordinator: AgentQueueCoordinator?
-    @ObservationIgnored private let effectExecutor: AgentQueueEffectExecutor?
+    @ObservationIgnored private let coordinator: AgentQueueCoordinator
+    @ObservationIgnored private let effectExecutor: AgentQueueEffectExecutor
+    @ObservationIgnored private let paneAdapter: any AgentQueuePaneAdapting
+    @ObservationIgnored private let plannerSurfaceID: UUID
+    @ObservationIgnored private let roleSkillInstaller: (any AgentQueueRoleSkillInstalling)?
+    @ObservationIgnored private let workerPreparer: (any AgentQueueWorkerPreparing)?
+    @ObservationIgnored private let skillCatalog: AgentQueueSkillCatalog?
+    @ObservationIgnored private let skillRootDirectory: String?
+    @ObservationIgnored private let readinessTimeout: Duration
+    @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
+    @ObservationIgnored private let skillSourceExists: @Sendable (String) -> Bool
+    @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var topologyReconciler: AgentQueueTopologyReconciler?
     @ObservationIgnored private var stateTask: Task<Void, Never>?
-    @ObservationIgnored
-    private let paneAdapter: AgentQueuePaneAdapting
-    @ObservationIgnored
-    private let store: AgentQueueStore?
-    @ObservationIgnored
-    private let roleSkillInstaller: (any AgentQueueRoleSkillInstalling)?
-    @ObservationIgnored
-    private let workerPreparer: (any AgentQueueWorkerPreparing)?
-    @ObservationIgnored
-    private let skillCatalog: AgentQueueSkillCatalog?
-    @ObservationIgnored
-    private let skillRootDirectory: String?
-    @ObservationIgnored
-    private let pollInterval: Duration
-    @ObservationIgnored
-    private let skillSourceExists: @Sendable (String) -> Bool
-    @ObservationIgnored
-    private let sleep: @Sendable (Duration) async throws -> Void
-    @ObservationIgnored
-    private let now: () -> Date
-    private var nextSequence: Int
-    @ObservationIgnored
-    private var monitoringTask: Task<Void, Never>?
-    private var reportFingerprintOrder: [ReportFingerprint] = []
-    private var reportFingerprints: Set<ReportFingerprint> = []
-    private var plannerResponseFingerprintOrder: [String] = []
-    private var plannerResponseFingerprints: Set<String> = []
-    private var plannerCorrectionRequestID: UUID?
-
-    private struct ReportFingerprint: Hashable {
-        var taskID: String
-        var surfaceID: UUID
-        var normalizedExcerpt: String
-    }
 
     init(
         initialState: AgentQueueState,
-        paneAdapter: AgentQueuePaneAdapting,
-        store: AgentQueueStore?,
+        plannerSurfaceID: UUID,
+        paneAdapter: any AgentQueuePaneAdapting,
+        coordinator: AgentQueueCoordinator,
+        effectExecutor: AgentQueueEffectExecutor,
         roleSkillInstaller: (any AgentQueueRoleSkillInstalling)? = nil,
         workerPreparer: (any AgentQueueWorkerPreparing)? = nil,
         skillCatalog: AgentQueueSkillCatalog? = nil,
         skillRootDirectory: String? = nil,
-        pollInterval: Duration = .seconds(1),
-        skillSourceExists: @escaping @Sendable (String) -> Bool = { path in
-            AgentQueueSkillPath.exists(path)
-        },
+        readinessTimeout: Duration = .seconds(30),
         sleep: @escaping @Sendable (Duration) async throws -> Void = { duration in
             try await Task.sleep(for: duration)
         },
-        now: @escaping () -> Date = Date.init,
-        coordinator: AgentQueueCoordinator? = nil,
-        effectExecutor: AgentQueueEffectExecutor? = nil
+        skillSourceExists: @escaping @Sendable (String) -> Bool = { path in
+            AgentQueueSkillPath.exists(path)
+        },
+        now: @escaping () -> Date = Date.init
     ) {
         state = initialState
+        self.plannerSurfaceID = plannerSurfaceID
+        self.paneAdapter = paneAdapter
         self.coordinator = coordinator
         self.effectExecutor = effectExecutor
-        self.paneAdapter = paneAdapter
-        self.store = store
         self.roleSkillInstaller = roleSkillInstaller
         self.workerPreparer = workerPreparer
         self.skillCatalog = skillCatalog
         self.skillRootDirectory = skillRootDirectory
-        self.pollInterval = pollInterval
-        self.skillSourceExists = skillSourceExists
+        self.readinessTimeout = readinessTimeout
         self.sleep = sleep
+        self.skillSourceExists = skillSourceExists
         self.now = now
-        nextSequence = initialState.tasks.count + 1
-    }
-
-    var canStart: Bool {
-        guard !hasActiveWork,
-              state.tasks.contains(where: { $0.status == .queued }),
-              let preparation = state.preparation,
-              preparation.isReady(agentID: AgentQueueAgentID.planner),
-              preparation.record(agentID: AgentQueueAgentID.planner)?.surfaceID ==
-                state.queue.plannerSurfaceID else {
-            return false
-        }
-
-        let activeWorkerIDs = Array(
-            AgentQueueAgentID.workerIDs.prefix(preparation.configuration.workerCount)
-        )
-        let activeWorkers = activeWorkerIDs.compactMap { agentID in
-            state.workers.first(where: { $0.id == agentID })
-        }
-        guard activeWorkers.count == activeWorkerIDs.count,
-              activeWorkers.contains(where: { $0.enabled && $0.status == .idle }) else {
-            return false
-        }
-
-        return activeWorkers.allSatisfy { worker in
-            preparation.isReady(agentID: worker.id) &&
-                preparation.record(agentID: worker.id)?.surfaceID == worker.surfaceID
-        }
-    }
-
-    var canRequestPlan: Bool {
-        guard !isPreparationInProgress,
-              let preparation = state.preparation,
-              preparation.isReady(agentID: AgentQueueAgentID.planner),
-              preparation.record(agentID: AgentQueueAgentID.planner)?.surfaceID ==
-                state.queue.plannerSurfaceID else {
-            return false
-        }
-
-        switch state.planningRequest?.phase {
-        case .submitting, .waitingForPlanner:
-            return false
-        case .failed, nil:
-            return true
-        }
     }
 
     var hasActiveWork: Bool {
-        state.tasks.contains { task in
-            switch task.status {
-            case .dispatching, .dispatched, .awaitingReport, .retrying:
-                return true
-            case .queued, .completed, .blocked, .failed, .cancelled:
-                return false
-            }
-        }
+        state.tasks.contains { $0.status.isActiveForAgentQueuePreparation }
     }
 
     var canEditProfiles: Bool {
         !hasActiveWork && !isPreparationInProgress
     }
 
+    func start() async {
+        guard stateTask == nil else { return }
+        let updates = await coordinator.stateUpdates()
+        state = await coordinator.snapshot()
+        effectExecutor.start()
+        stateTask = Task { [weak self] in
+            for await snapshot in updates {
+                guard !Task.isCancelled else { return }
+                self?.state = snapshot
+            }
+        }
+    }
+
+    func stop() {
+        stateTask?.cancel()
+        stateTask = nil
+        effectExecutor.stop()
+        topologyReconciler?.stop()
+    }
+
+    func installTopologyReconciler(_ reconciler: AgentQueueTopologyReconciler) {
+        topologyReconciler = reconciler
+    }
+
+    func startTopologyMonitoring() {
+        let processEvents = TerminalController.shared.agentChatTranscriptService?.lifecycleEvents()
+            ?? AsyncStream { $0.finish() }
+        topologyReconciler?.start(
+            surfaceEvents: CmuxEventBus.shared.surfaceClosedEvents(),
+            processEvents: processEvents
+        )
+    }
+
+    func pause() {
+        Task { try? await coordinator.pause(cause: "manual") }
+    }
+
+    func resume() {
+        Task { try? await coordinator.resume() }
+    }
+
+    func removeRegistration(agentID: String) {
+        Task {
+            try? await coordinator.removeAgent(
+                agentID: agentID,
+                expectedBindingID: nil,
+                cause: "manual"
+            )
+        }
+    }
+
+    func setExecutionMode(taskID: String, mode: AgentTaskExecutionMode) {
+        Task {
+            if let snapshot = try? await coordinator.setExecutionMode(taskID: taskID, mode: mode) {
+                state = snapshot
+            }
+        }
+    }
+
     func setWorkerCount(_ count: Int) {
         guard (1...4).contains(count),
               var preparation = state.preparation,
               count != preparation.configuration.workerCount,
-              !isPreparationInProgress else {
-            return
-        }
-
-        let previousCount = preparation.configuration.workerCount
-        guard !hasActiveWork || count > previousCount,
+              canEditProfiles,
               let configuration = try? preparation.configuration.replacingWorkerCount(count) else {
             return
         }
-
         preparation.configuration = configuration
         preparation.phase = .notPrepared
+        preparation.completedWorkerCount = 0
         preparation.errorMessage = nil
-
-        if count > previousCount {
-            for agentID in AgentQueueAgentID.workerIDs[previousCount..<count] {
-                var record = preparation.record(agentID: agentID) ??
-                    AgentQueueAgentPreparationRecord(
-                        agentID: agentID,
-                        surfaceID: state.workers.first(where: { $0.id == agentID })?.surfaceID,
-                        appliedProfileFingerprint: nil,
-                        appliedRoleSkillFingerprint: nil,
-                        phase: .notPrepared,
-                        errorMessage: nil
-                    )
-                record.phase = .notPrepared
-                record.errorMessage = nil
-                preparation = preparation.replacingRecord(record)
-            }
-        }
-
-        let activeWorkerIDs = Set(AgentQueueAgentID.workerIDs.prefix(count))
-        for index in state.workers.indices where !state.workers[index].status.isActiveForPreparation {
-            state.workers[index].enabled = activeWorkerIDs.contains(state.workers[index].id)
-        }
-        state.preparation = preparation
         pendingRoleSkillChanges = []
-        if !hasActiveWork {
-            state.queue.status = .paused
-        }
-        state.queue.updatedAt = now()
-        persistSoon()
+        commitPreparation(preparation)
     }
 
     func addSkill(_ skill: AgentQueueSkillSelection, to agentID: String) {
@@ -206,16 +157,16 @@ final class AgentQueueController {
     }
 
     func setPreparationConfiguration(_ configuration: AgentQueuePreparationConfiguration) {
-        state.preparation = AgentQueuePreparationState(
-            configuration: configuration,
-            phase: .notPrepared,
-            completedWorkerCount: 0,
-            errorMessage: nil
-        )
+        guard canEditProfiles else { return }
         pendingRoleSkillChanges = []
-        state.queue.status = .paused
-        state.queue.updatedAt = now()
-        persistSoon()
+        commitPreparation(
+            AgentQueuePreparationState(
+                configuration: configuration,
+                phase: .notPrepared,
+                completedWorkerCount: 0,
+                errorMessage: nil
+            )
+        )
     }
 
     func skillOptions(query: String = "") async -> [AgentQueueSkillSelection] {
@@ -224,13 +175,19 @@ final class AgentQueueController {
     }
 
     func prepareWorkers(allowSkillChanges: Bool) async {
-        let configuration = state.preparation?.configuration ?? .defaultConfiguration
-        updatePreparation(
-            configuration: configuration,
-            phase: .checkingSkills,
+        guard !hasActiveWork else { return }
+        var snapshot = await coordinator.snapshot()
+        var preparation = snapshot.preparation ?? AgentQueuePreparationState(
+            configuration: .defaultConfiguration,
+            phase: .notPrepared,
             completedWorkerCount: 0,
             errorMessage: nil
         )
+        let configuration = preparation.configuration
+        preparation.phase = .checkingSkills
+        preparation.completedWorkerCount = 0
+        preparation.errorMessage = nil
+        snapshot = await commitPreparationNow(preparation) ?? snapshot
 
         do {
             let changes: [AgentQueueRoleSkillChange]
@@ -240,18 +197,11 @@ final class AgentQueueController {
                 throw AgentQueuePreparationError.skillInstallationFailed(error.localizedDescription)
             }
             pendingRoleSkillChanges = changes
-
             if !changes.isEmpty && !allowSkillChanges {
-                updatePreparation(
-                    configuration: configuration,
-                    phase: .awaitingSkillConfirmation,
-                    completedWorkerCount: 0,
-                    errorMessage: nil
-                )
-                persistSoon()
+                preparation.phase = .awaitingSkillConfirmation
+                _ = await commitPreparationNow(preparation)
                 return
             }
-
             if !changes.isEmpty {
                 do {
                     try await roleSkillInstaller?.apply(changes)
@@ -260,13 +210,6 @@ final class AgentQueueController {
                 }
             }
             pendingRoleSkillChanges = []
-
-            var preparation = state.preparation ?? AgentQueuePreparationState(
-                configuration: configuration,
-                phase: .checkingSkills,
-                completedWorkerCount: 0,
-                errorMessage: nil
-            )
             preparation.desiredRoleSkillFingerprints = try await roleSkillFingerprints(
                 preserving: preparation.desiredRoleSkillFingerprints
             )
@@ -274,623 +217,192 @@ final class AgentQueueController {
             var missingSkillAgentIDs: Set<String> = []
             for agentID in configuration.activeAgentIDs {
                 guard let profile = configuration.profile(id: agentID),
-                      let missingSkill = profile.additionalSkills.first(where: {
+                      let missing = profile.additionalSkills.first(where: {
                           !skillSourceExists($0.sourcePath)
-                      }) else {
-                    continue
-                }
+                      }) else { continue }
                 missingSkillAgentIDs.insert(agentID)
-                var record = preparation.record(agentID: agentID) ??
-                    preparationRecord(agentID: agentID)
+                var record = preparation.record(agentID: agentID)
+                    ?? preparationRecord(agentID: agentID, surfaceID: surfaceID(for: agentID, in: snapshot))
                 record.phase = .failed
-                record.errorMessage = missingSkillErrorMessage(path: missingSkill.sourcePath)
+                record.errorMessage = missingSkillErrorMessage(path: missing.sourcePath)
                 preparation = preparation.replacingRecord(record)
-            }
-
-            var agentIDsToPrepare: Set<String> = []
-            for agentID in configuration.activeAgentIDs where !missingSkillAgentIDs.contains(agentID) {
-                if await requiresPreparation(agentID: agentID, preparation: preparation) {
-                    agentIDsToPrepare.insert(agentID)
-                }
-            }
-            for agentID in agentIDsToPrepare {
-                var record = preparation.record(agentID: agentID) ??
-                    preparationRecord(agentID: agentID)
-                record.phase = .preparing
-                record.errorMessage = nil
-                preparation = preparation.replacingRecord(record)
-            }
-            state.preparation = preparation
-
-            let requiresWorkerReconciliation = workerSlotsRequireReconciliation(configuration: configuration)
-            guard !agentIDsToPrepare.isEmpty || requiresWorkerReconciliation else {
-                finalizePreparationState()
-                if state.preparation?.phase == .failed {
-                    state.queue.status = .paused
-                }
-                state.queue.updatedAt = now()
-                persistSoon()
-                return
             }
 
             guard let workerPreparer else {
                 throw AgentQueuePreparationError.plannerUnavailable
             }
-            let activeWorkerAgentIDs = Set(
-                state.workers.compactMap { worker in
-                    worker.status.isActiveForPreparation ? worker.id : nil
-                }
-            )
-            let prepared = try await workerPreparer.prepare(
+            let plannerID = currentPlannerSurfaceID(in: snapshot)
+            let topology = try await workerPreparer.prepareTopology(
                 configuration: configuration,
-                plannerSurfaceID: state.queue.plannerSurfaceID,
-                existingWorkerSlots: state.workers.map {
+                plannerSurfaceID: plannerID,
+                existingWorkerSlots: snapshot.workers.map {
                     AgentQueueWorkerSlot(agentID: $0.id, surfaceID: $0.surfaceID)
                 },
-                activeWorkerAgentIDs: activeWorkerAgentIDs,
-                agentIDsToPrepare: agentIDsToPrepare,
-                progress: { [weak self] progress in
-                    self?.updatePreparationProgress(
-                        progress,
-                        configuration: configuration,
-                        agentIDsToPrepare: agentIDsToPrepare
+                activeWorkerAgentIDs: Set(snapshot.workers.compactMap {
+                    $0.status.isActiveForAgentQueuePreparation ? $0.id : nil
+                })
+            )
+            let workers = workerRoster(for: topology.workerSlots, preserving: snapshot.workers)
+            snapshot = await commitPreparationNow(preparation, workers: workers) ?? snapshot
+
+            let desiredWorkerIDs = Set(topology.workerSlots.map(\.agentID))
+            for binding in snapshot.bindings where binding.role == .worker {
+                let desiredSurface = topology.workerSlots.first(where: {
+                    $0.agentID == binding.agentID
+                })?.surfaceID
+                if !desiredWorkerIDs.contains(binding.agentID) || desiredSurface != binding.surfaceID {
+                    try? await coordinator.removeAgent(
+                        agentID: binding.agentID,
+                        expectedBindingID: binding.bindingID,
+                        cause: "reprepare"
                     )
                 }
-            )
-            guard prepared.plannerSurfaceID == state.queue.plannerSurfaceID else {
-                throw AgentQueuePreparationError.plannerUnavailable
             }
+            snapshot = await coordinator.snapshot()
 
-            registerPreparedWorkers(prepared.workerSlots)
-            preparation = state.preparation ?? preparation
-            let preparedAgentIDs = Set(prepared.preparedAgents.map(\.agentID))
-            let failedAgentIDs = Set(prepared.failures.map(\.agentID))
-
-            for preparedAgent in prepared.preparedAgents {
-                guard let profile = configuration.profile(id: preparedAgent.agentID),
-                      let roleFingerprint = roleFingerprint(
-                          agentID: preparedAgent.agentID,
-                          in: preparation.desiredRoleSkillFingerprints
-                      ) else {
-                    continue
-                }
-                preparation = preparation.replacingRecord(
-                    AgentQueueAgentPreparationRecord(
-                        agentID: preparedAgent.agentID,
-                        surfaceID: preparedAgent.surfaceID,
-                        appliedProfileFingerprint: AgentQueueProfileFingerprint.make(profile),
-                        appliedRoleSkillFingerprint: roleFingerprint,
-                        phase: .ready,
-                        errorMessage: nil
-                    )
+            let targetAgentIDs = configuration.activeAgentIDs.filter { agentID in
+                !missingSkillAgentIDs.contains(agentID) && needsPreparation(
+                    agentID: agentID,
+                    preparation: preparation,
+                    topology: topology,
+                    snapshot: snapshot
                 )
             }
-
-            for failure in prepared.failures {
-                var record = preparation.record(agentID: failure.agentID) ??
-                    preparationRecord(agentID: failure.agentID, surfaceID: failure.surfaceID)
-                record.surfaceID = failure.surfaceID ?? record.surfaceID
-                record.phase = .failed
-                record.errorMessage = failure.message
-                preparation = preparation.replacingRecord(record)
-            }
-
-            for agentID in agentIDsToPrepare
-            where !preparedAgentIDs.contains(agentID) && !failedAgentIDs.contains(agentID) {
-                var record = preparation.record(agentID: agentID) ?? preparationRecord(agentID: agentID)
-                record.phase = .failed
-                record.errorMessage = missingPreparationResultMessage(agentID: agentID)
-                preparation = preparation.replacingRecord(record)
-            }
-            state.preparation = preparation
-            finalizePreparationState()
-            if state.preparation?.phase == .failed {
-                state.queue.status = .paused
-            }
-            state.queue.updatedAt = now()
-            persistSoon()
-            topologyReconciler?.reconcile(cause: "preparation")
-        } catch {
-            state.queue.status = .paused
-            updatePreparation(
-                configuration: configuration,
-                phase: .failed,
-                completedWorkerCount: state.preparation?.completedWorkerCount ?? 0,
-                errorMessage: preparationErrorMessage(error)
-            )
-            state.queue.updatedAt = now()
-            persistSoon()
-        }
-    }
-
-    func restorePersistedState() async {
-        guard let store else { return }
-        let workspaceID = state.queue.workspaceID
-        let loaded: AgentQueueState?
-        do {
-            loaded = try await store.load(workspaceID: workspaceID)
-        } catch {
-            var preparation = state.preparation ?? AgentQueuePreparationState(
-                configuration: .defaultConfiguration,
-                phase: .failed,
-                completedWorkerCount: 0,
-                errorMessage: nil
-            )
-            preparation.phase = .failed
-            preparation.completedWorkerCount = 0
-            preparation.errorMessage = restorationErrorMessage(error)
-            state.preparation = preparation
-            state.queue.status = .paused
-            state.queue.updatedAt = now()
-            pendingRoleSkillChanges = []
-            return
-        }
-        guard var restored = loaded,
-              restored.queue.workspaceID == workspaceID else { return }
-
-        let plannerAvailable = await isAvailableTerminal(restored.queue.plannerSurfaceID)
-        var availableWorkers: [AgentWorker] = []
-        if restored.preparation != nil {
-            for worker in restored.workers {
-                if await isAvailableTerminal(worker.surfaceID) {
-                    availableWorkers.append(worker)
-                }
-            }
-        }
-        restored.workers = availableWorkers
-        restored.queue.status = .paused
-
-        if var preparation = restored.preparation {
-            do {
-                preparation.desiredRoleSkillFingerprints = try await roleSkillFingerprints(
-                    preserving: preparation.desiredRoleSkillFingerprints
-                )
-            } catch {
-                preparation.phase = .failed
-                preparation.completedWorkerCount = 0
-                preparation.errorMessage = preparationErrorMessage(error)
-                restored.preparation = preparation
-                state = restored
-                pendingRoleSkillChanges = []
-                nextSequence = restored.tasks.count + 1
+            guard !targetAgentIDs.isEmpty else {
+                finalizePreparation(&preparation, snapshot: snapshot)
+                _ = await commitPreparationNow(preparation)
+                topologyReconciler?.reconcile(cause: "preparation")
                 return
             }
 
-            for agentID in preparation.configuration.activeAgentIDs {
-                let expectedSurfaceID: UUID? = if agentID == AgentQueueAgentID.planner {
-                    plannerAvailable ? restored.queue.plannerSurfaceID : nil
-                } else {
-                    availableWorkers.first(where: { $0.id == agentID })?.surfaceID
-                }
-                var record = preparation.record(agentID: agentID) ??
-                    AgentQueueAgentPreparationRecord(
-                        agentID: agentID,
-                        surfaceID: expectedSurfaceID,
-                        appliedProfileFingerprint: nil,
-                        appliedRoleSkillFingerprint: nil,
-                        phase: .notPrepared,
-                        errorMessage: nil
-                    )
+            let preparedAt = now()
+            let newBindings = targetAgentIDs.compactMap { agentID -> AgentQueueAgentBinding? in
+                guard let surfaceID = surfaceID(for: agentID, topology: topology) else { return nil }
+                return AgentQueueAgentBinding(
+                    bindingID: UUID().uuidString.lowercased(),
+                    agentID: agentID,
+                    role: agentID == AgentQueueAgentID.planner ? .planner : .worker,
+                    workspaceID: snapshot.queue.workspaceID,
+                    paneID: surfaceID,
+                    surfaceID: surfaceID,
+                    readiness: .pending,
+                    preparedAt: preparedAt,
+                    readyDeadline: preparedAt.addingTimeInterval(30),
+                    readyAt: nil,
+                    lastSeenAt: nil,
+                    observedSessionID: nil
+                )
+            }
+            guard newBindings.count == targetAgentIDs.count else {
+                throw AgentQueuePreparationError.plannerUnavailable
+            }
+            for binding in newBindings {
+                var record = preparation.record(agentID: binding.agentID)
+                    ?? preparationRecord(agentID: binding.agentID, surfaceID: binding.surfaceID)
+                record.surfaceID = binding.surfaceID
+                record.phase = .preparing
+                record.errorMessage = nil
+                preparation = preparation.replacingRecord(record)
+            }
+            preparation.phase = targetAgentIDs.contains(AgentQueueAgentID.planner)
+                ? .startingPlanner
+                : .startingWorkers
+            _ = await commitPreparationNow(preparation)
+            try await coordinator.prepareBindings(newBindings)
 
-                if let profile = preparation.configuration.profile(id: agentID),
-                   let missingSkill = profile.additionalSkills.first(where: {
-                       !skillSourceExists($0.sourcePath)
-                   }) {
-                    record.surfaceID = expectedSurfaceID
-                    record.phase = .failed
-                    record.errorMessage = missingSkillErrorMessage(path: missingSkill.sourcePath)
-                    preparation = preparation.replacingRecord(record)
+            let bootstrapFailures = await workerPreparer.bootstrap(
+                topology: topology,
+                bindings: newBindings,
+                configuration: configuration
+            )
+            var failureByAgent = Dictionary(
+                uniqueKeysWithValues: bootstrapFailures.map { ($0.agentID, $0.message) }
+            )
+            let failedBootstrapIDs = Set(bootstrapFailures.map(\.agentID))
+            for binding in newBindings where failedBootstrapIDs.contains(binding.agentID) {
+                try? await coordinator.removeAgent(
+                    agentID: binding.agentID,
+                    expectedBindingID: binding.bindingID,
+                    cause: "bootstrap_failed"
+                )
+            }
+
+            for binding in newBindings where !failedBootstrapIDs.contains(binding.agentID) {
+                guard let surfaceID = binding.surfaceID,
+                      let sessionID = await paneAdapter.observedCodexSessionID(surfaceID: surfaceID) else {
                     continue
                 }
+                _ = try? await coordinator.recordObservedSession(
+                    bindingID: binding.bindingID,
+                    sessionID: sessionID
+                )
+            }
 
-                let evidenceMatches = expectedSurfaceID != nil &&
-                    record.phase == .ready &&
-                    record.surfaceID == expectedSurfaceID &&
-                    preparation.isReady(agentID: agentID)
-                let liveReady = if let expectedSurfaceID, evidenceMatches {
-                    await paneAdapter.codexReadiness(surfaceID: expectedSurfaceID) == .idle
-                } else {
-                    false
+            let bindingsToAwait = newBindings.filter {
+                !failedBootstrapIDs.contains($0.agentID)
+            }
+            let readinessResults = await withTaskGroup(
+                of: (String, String, Bool).self,
+                returning: [(String, String, Bool)].self
+            ) { group in
+                for binding in bindingsToAwait {
+                    group.addTask { [coordinator, readinessTimeout, sleep] in
+                        let ready = await Self.awaitReady(
+                            bindingID: binding.bindingID,
+                            coordinator: coordinator,
+                            timeout: readinessTimeout,
+                            sleep: sleep
+                        )
+                        return (binding.agentID, binding.bindingID, ready)
+                    }
                 }
-                if !evidenceMatches || !liveReady {
-                    record.surfaceID = expectedSurfaceID
-                    record.phase = .notPrepared
+                var values: [(String, String, Bool)] = []
+                for await value in group {
+                    values.append(value)
+                }
+                return values
+            }
+            for (agentID, bindingID, ready) in readinessResults where !ready {
+                failureByAgent[agentID] = readyTimeoutMessage(agentID: agentID)
+                try? await coordinator.removeAgent(
+                    agentID: agentID,
+                    expectedBindingID: bindingID,
+                    cause: "ready_timeout"
+                )
+            }
+
+            snapshot = await coordinator.snapshot()
+            for binding in newBindings {
+                var record = preparation.record(agentID: binding.agentID)
+                    ?? preparationRecord(agentID: binding.agentID, surfaceID: binding.surfaceID)
+                record.surfaceID = binding.surfaceID
+                if let message = failureByAgent[binding.agentID] {
+                    record.phase = .failed
+                    record.errorMessage = message
+                } else if snapshot.bindings.contains(where: {
+                    $0.bindingID == binding.bindingID && $0.readiness == .ready
+                }), let profile = configuration.profile(id: binding.agentID) {
+                    record.appliedProfileFingerprint = AgentQueueProfileFingerprint.make(profile)
+                    record.appliedRoleSkillFingerprint = roleFingerprint(
+                        agentID: binding.agentID,
+                        in: preparation.desiredRoleSkillFingerprints
+                    )
+                    record.phase = .ready
                     record.errorMessage = nil
+                } else {
+                    record.phase = .failed
+                    record.errorMessage = readyTimeoutMessage(agentID: binding.agentID)
                 }
                 preparation = preparation.replacingRecord(record)
             }
-            restored.preparation = preparation
-        }
-
-        state = restored
-        finalizePreparationState()
-        pendingRoleSkillChanges = []
-        nextSequence = restored.tasks.count + 1
-        persistSoon()
-    }
-
-    func createTasks(from text: String) {
-        let bodies = AgentTaskSplitter.split(text)
-        guard !bodies.isEmpty else { return }
-
-        let currentNow = now()
-        let tasks = bodies.map { body in
-            let id = AgentTaskIDFactory.makeTaskID(now: currentNow, sequence: nextSequence)
-            nextSequence += 1
-            return AgentTask(
-                id: id,
-                queueID: state.queue.id,
-                title: Self.title(for: body),
-                body: body,
-                status: .queued,
-                executionMode: .sequential,
-                assignedWorkerSurfaceID: nil,
-                dispatchAttemptCount: 0,
-                recoveryAttemptCount: 0,
-                timeoutSeconds: 1_800,
-                retryLimit: 3,
-                createdAt: currentNow,
-                dispatchedAt: nil,
-                completedAt: nil,
-                lastError: nil
-            )
-        }
-
-        state.tasks.append(contentsOf: tasks)
-        for task in tasks {
-            state.events.append(
-                AgentQueueLogEvent(
-                    id: UUID().uuidString,
-                    queueID: state.queue.id,
-                    taskID: task.id,
-                    workerID: nil,
-                    type: .taskCreated,
-                    message: "created \(task.id)",
-                    evidence: nil,
-                    createdAt: currentNow
-                )
-            )
-        }
-        state.queue.updatedAt = currentNow
-        persistSoon()
-    }
-
-    @discardableResult
-    func requestPlan(for goal: String) async -> Bool {
-        let normalizedGoal = goal.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedGoal.isEmpty,
-              canRequestPlan,
-              let plannerProfile = state.preparation?.configuration.profile(
-                  id: AgentQueueAgentID.planner
-              ) else {
-            return false
-        }
-
-        let requestID = UUID()
-        let createdAt = now()
-        plannerCorrectionRequestID = nil
-        state.planningRequest = AgentQueuePlanningRequest(
-            requestID: requestID,
-            goal: normalizedGoal,
-            phase: .submitting,
-            createdAt: createdAt,
-            errorMessage: nil
-        )
-        state.queue.updatedAt = createdAt
-        persistSoon()
-
-        let prompt = AgentQueueInstructionBuilder.plannerRequest(
-            goal: normalizedGoal,
-            requestID: requestID,
-            profile: plannerProfile
-        )
-        do {
-            _ = try await paneAdapter.submitText(prompt, to: state.queue.plannerSurfaceID)
-            guard state.planningRequest?.requestID == requestID else { return false }
-            state.planningRequest?.phase = .waitingForPlanner
-            state.planningRequest?.errorMessage = nil
-            state.queue.updatedAt = now()
-            persistSoon()
-            return true
+            finalizePreparation(&preparation, snapshot: snapshot)
+            _ = await commitPreparationNow(preparation)
+            topologyReconciler?.reconcile(cause: "preparation")
         } catch {
-            guard state.planningRequest?.requestID == requestID else { return false }
-            state.planningRequest?.phase = .failed
-            state.planningRequest?.errorMessage = planningSubmissionErrorMessage(error)
-            state.queue.updatedAt = now()
-            persistSoon()
-            return false
-        }
-    }
-
-    @discardableResult
-    func retryPlanningRequest() async -> Bool {
-        guard let request = state.planningRequest, request.phase == .failed else {
-            return false
-        }
-        return await requestPlan(for: request.goal)
-    }
-
-    func setExecutionMode(taskID: String, mode: AgentTaskExecutionMode) {
-        guard let index = state.tasks.firstIndex(where: { $0.id == taskID }) else { return }
-        guard state.tasks[index].status == .queued else { return }
-
-        state.tasks[index].executionMode = mode
-        persistSoon()
-    }
-
-    func start() async {
-        if let coordinator {
-            guard stateTask == nil else { return }
-            state = await coordinator.snapshot()
-            let updates = await coordinator.stateUpdates()
-            effectExecutor?.start()
-            stateTask = Task { [weak self] in
-                for await snapshot in updates {
-                    guard !Task.isCancelled else { return }
-                    self?.state = snapshot
-                }
-            }
-            return
-        }
-        guard canStart else { return }
-        await apply(.queueStarted)
-    }
-
-    func installTopologyReconciler(_ reconciler: AgentQueueTopologyReconciler) {
-        topologyReconciler = reconciler
-    }
-
-    func startTopologyMonitoring() {
-        let processEvents = TerminalController.shared.agentChatTranscriptService?.lifecycleEvents()
-            ?? AsyncStream { $0.finish() }
-        topologyReconciler?.start(
-            surfaceEvents: CmuxEventBus.shared.surfaceClosedEvents(),
-            processEvents: processEvents
-        )
-    }
-
-    func pause() {
-        if let coordinator {
-            Task { try? await coordinator.pause(cause: "manual") }
-            return
-        }
-        Task { await apply(.queuePaused(cause: "manual")) }
-    }
-
-    func resume() {
-        guard let coordinator else { return }
-        Task { try? await coordinator.resume() }
-    }
-
-    func removeRegistration(agentID: String) {
-        guard let coordinator else { return }
-        Task {
-            try? await coordinator.removeAgent(
-                agentID: agentID,
-                expectedBindingID: nil,
-                cause: "manual"
-            )
-        }
-    }
-
-    func startMonitoring() {
-        guard monitoringTask == nil else { return }
-
-        let pollInterval = pollInterval
-        let sleep = sleep
-        monitoringTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await sleep(pollInterval)
-                } catch {
-                    return
-                }
-
-                guard !Task.isCancelled, let self else { return }
-                guard self.hasActiveTasks || self.isWaitingForPlanner else { continue }
-                await self.pollReportsOnce(now: self.now())
-            }
-        }
-    }
-
-    func stopMonitoring() {
-        monitoringTask?.cancel()
-        monitoringTask = nil
-        stateTask?.cancel()
-        stateTask = nil
-        effectExecutor?.stop()
-    }
-
-    func apply(_ event: AgentQueueInputEvent) async {
-        let result = AgentQueueCore.reduce(state: state, event: event, now: now())
-        state = result.state
-        await runEffects(result.effects)
-    }
-
-    func pollReportsOnce(now pollTime: Date) async {
-        let knownTaskIDs = Set(state.tasks.map(\.id))
-        let activeWorkerSurfaces = state.workers.compactMap { worker -> UUID? in
-            guard worker.enabled else { return nil }
-            switch worker.status {
-            case .assigned, .running, .awaitingReport, .recovering:
-                return worker.surfaceID
-            case .idle, .offline:
-                return nil
-            }
-        }
-        let surfaces = [state.queue.plannerSurfaceID] + activeWorkerSurfaces
-
-        for surfaceID in surfaces {
-            guard let snapshot = try? await paneAdapter.readText(surfaceID: surfaceID, lines: 80) else {
-                continue
-            }
-            if surfaceID == state.queue.plannerSurfaceID {
-                await importPlannerTasks(from: snapshot.text)
-            }
-            let reports = AgentQueueReportDetector.detect(
-                in: snapshot.text,
-                surfaceID: surfaceID,
-                plannerSurfaceID: state.queue.plannerSurfaceID,
-                knownTaskIDs: knownTaskIDs
-            )
-            for report in reports {
-                if let task = state.tasks.first(where: { $0.id == report.taskID }), task.status.isTerminal {
-                    continue
-                }
-
-                let fingerprint = makeFingerprint(
-                    taskID: report.taskID,
-                    surfaceID: report.surfaceID,
-                    excerpt: report.excerpt
-                )
-                guard remember(fingerprint) else { continue }
-
-                if report.kind == .unmatched {
-                    await apply(
-                        .ignoredReport(
-                            surfaceID: report.surfaceID,
-                            excerpt: report.excerpt,
-                            reason: "unknown_task_id"
-                        )
-                    )
-                } else {
-                    await apply(.reportDetected(report))
-                }
-            }
-
-            for line in AgentQueueReportDetector.detectMalformedCompletionLines(in: snapshot.text) {
-                let fingerprint = makeFingerprint(
-                    taskID: "<missing>",
-                    surfaceID: surfaceID,
-                    excerpt: line
-                )
-                guard remember(fingerprint) else { continue }
-                await apply(
-                    .ignoredReport(
-                        surfaceID: surfaceID,
-                        excerpt: line,
-                        reason: "missing_task_id"
-                    )
-                )
-            }
-        }
-
-        for task in state.tasks where task.status == .awaitingReport {
-            guard let dispatchedAt = task.dispatchedAt else { continue }
-            if pollTime.timeIntervalSince(dispatchedAt) >= task.timeoutSeconds {
-                await apply(.timeout(taskID: task.id))
-            }
-        }
-    }
-
-    private func runEffects(_ effects: [AgentQueueSideEffect]) async {
-        for effect in effects {
-            switch effect {
-            case let .dispatch(taskID, workerID, bindingID):
-                await dispatch(taskID: taskID, workerID: workerID, bindingID: bindingID)
-
-            case let .recover(taskID, workerID, bindingID):
-                guard let task = state.tasks.first(where: { $0.id == taskID }),
-                      let worker = state.workers.first(where: { $0.id == workerID }) else { continue }
-                guard let profile = state.preparation?.configuration.profile(id: worker.id) else {
-                    await failForMissingProfile(
-                        taskID: taskID,
-                        workerID: workerID,
-                        bindingID: bindingID
-                    )
-                    continue
-                }
-                let text = AgentQueueInstructionBuilder.recoveryPrompt(
-                    task: task,
-                    profile: profile
-                )
-                do {
-                    _ = try await paneAdapter.submitText(text, to: worker.surfaceID)
-                    await apply(
-                        .recoverySubmitted(
-                            taskID: taskID,
-                            workerID: workerID,
-                            bindingID: bindingID
-                        )
-                    )
-                } catch {
-                    await apply(
-                        .recoverySubmissionFailed(
-                            taskID: taskID,
-                            workerID: workerID,
-                            bindingID: bindingID,
-                            message: error.localizedDescription
-                        )
-                    )
-                }
-            }
-        }
-    }
-
-    private func dispatch(taskID: String, workerID: String, bindingID: String) async {
-        guard let task = state.tasks.first(where: { $0.id == taskID }),
-              let worker = state.workers.first(where: {
-                  $0.id == workerID && $0.bindingID == bindingID
-              }) else {
-            return
-        }
-        guard let profile = state.preparation?.configuration.profile(id: worker.id) else {
-            await failForMissingProfile(
-                taskID: taskID,
-                workerID: workerID,
-                bindingID: bindingID
-            )
-            return
-        }
-        let text = AgentQueueInstructionBuilder.workerInstruction(
-            context: AgentQueueInstructionContext(
-                task: task,
-                workerSurfaceID: worker.surfaceID,
-                profile: profile
-            )
-        )
-        do {
-            let result = try await paneAdapter.submitText(text, to: worker.surfaceID)
-            await apply(
-                .dispatchSubmitted(
-                    taskID: taskID,
-                    workerID: workerID,
-                    bindingID: bindingID,
-                    queued: result.queued
-                )
-            )
-        } catch {
-            await apply(
-                .dispatchSubmissionFailed(
-                    taskID: taskID,
-                    workerID: workerID,
-                    bindingID: bindingID,
-                    message: error.localizedDescription
-                )
-            )
-        }
-    }
-
-    private func failForMissingProfile(
-        taskID: String,
-        workerID: String,
-        bindingID: String
-    ) async {
-        await apply(
-            .dispatchSubmissionFailed(
-                taskID: taskID,
-                workerID: workerID,
-                bindingID: bindingID,
-                message: "Missing Agent Queue profile for \(workerID)."
-            )
-        )
-    }
-
-    private func persistSoon() {
-        guard let store else { return }
-        let snapshot = state
-        Task {
-            try? await store.save(AgentQueueStore.pruneEvents(in: snapshot, limit: 500))
+            preparation.phase = .failed
+            preparation.completedWorkerCount = 0
+            preparation.errorMessage = preparationErrorMessage(error)
+            _ = await commitPreparationNow(preparation)
         }
     }
 
@@ -900,36 +412,40 @@ final class AgentQueueController {
     ) {
         guard canEditProfiles,
               var preparation = state.preparation,
-              let profile = preparation.configuration.profile(id: agentID) else {
+              let profile = preparation.configuration.profile(id: agentID) else { return }
+        let updated = transform(profile)
+        guard updated != profile,
+              let configuration = try? preparation.configuration.replacingProfile(updated) else {
             return
         }
-
-        let updatedProfile = transform(profile)
-        guard updatedProfile != profile,
-              let configuration = try? preparation.configuration.replacingProfile(updatedProfile) else {
-            return
-        }
-
-        var record = preparation.record(agentID: agentID) ?? AgentQueueAgentPreparationRecord(
-            agentID: agentID,
-            surfaceID: state.workers.first(where: { $0.id == agentID })?.surfaceID,
-            appliedProfileFingerprint: nil,
-            appliedRoleSkillFingerprint: nil,
-            phase: .notPrepared,
-            errorMessage: nil
-        )
-        record.phase = .notPrepared
-        record.errorMessage = nil
-
         preparation.configuration = configuration
         preparation.phase = .notPrepared
+        preparation.completedWorkerCount = 0
         preparation.errorMessage = nil
+        var record = preparation.record(agentID: agentID)
+            ?? preparationRecord(agentID: agentID, surfaceID: surfaceID(for: agentID, in: state))
+        record.phase = .notPrepared
+        record.errorMessage = nil
         preparation = preparation.replacingRecord(record)
-        state.preparation = preparation
         pendingRoleSkillChanges = []
-        state.queue.status = .paused
-        state.queue.updatedAt = now()
-        persistSoon()
+        commitPreparation(preparation)
+    }
+
+    private func commitPreparation(_ preparation: AgentQueuePreparationState) {
+        Task { _ = await commitPreparationNow(preparation) }
+    }
+
+    @discardableResult
+    private func commitPreparationNow(
+        _ preparation: AgentQueuePreparationState,
+        workers: [AgentWorker]? = nil
+    ) async -> AgentQueueState? {
+        guard let snapshot = try? await coordinator.updatePreparation(
+            preparation,
+            workers: workers
+        ) else { return nil }
+        state = snapshot
+        return snapshot
     }
 
     private func roleSkillFingerprints(
@@ -950,30 +466,109 @@ final class AgentQueueController {
         }
     }
 
-    private func roleFingerprint(
+    private func needsPreparation(
         agentID: String,
-        in fingerprints: [String: String]
-    ) -> String? {
-        let role = agentID == AgentQueueAgentID.planner
-            ? AgentQueueRoleSkill.planner
-            : AgentQueueRoleSkill.worker
-        return fingerprints[role.rawValue]
+        preparation: AgentQueuePreparationState,
+        topology: AgentQueuePreparedTopology,
+        snapshot: AgentQueueState
+    ) -> Bool {
+        guard preparation.isReady(agentID: agentID),
+              let surfaceID = surfaceID(for: agentID, topology: topology),
+              preparation.record(agentID: agentID)?.surfaceID == surfaceID,
+              snapshot.bindings.contains(where: {
+                  $0.agentID == agentID &&
+                      $0.surfaceID == surfaceID &&
+                      $0.readiness == .ready
+              }) else {
+            return true
+        }
+        return false
     }
 
-    private func expectedSurfaceID(agentID: String) -> UUID? {
-        if agentID == AgentQueueAgentID.planner {
-            return state.queue.plannerSurfaceID
+    private func workerRoster(
+        for slots: [AgentQueueWorkerSlot],
+        preserving existing: [AgentWorker]
+    ) -> [AgentWorker] {
+        let existingByID = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+        let workspaceID = state.queue.workspaceID
+        let currentNow = now()
+        return slots.map { slot in
+            let index = AgentQueueAgentID.workerIDs.firstIndex(of: slot.agentID) ?? 0
+            if var worker = existingByID[slot.agentID], worker.surfaceID == slot.surfaceID {
+                worker.enabled = true
+                worker.lastSeenAt = currentNow
+                return worker
+            }
+            return AgentWorker(
+                id: slot.agentID,
+                workspaceID: workspaceID,
+                paneID: slot.surfaceID,
+                surfaceID: slot.surfaceID,
+                label: Self.workerLabel(index: index),
+                enabled: true,
+                status: .offline,
+                currentTaskID: nil,
+                lastSeenAt: currentNow
+            )
         }
-        return state.workers.first(where: { $0.id == agentID })?.surfaceID
+    }
+
+    private func finalizePreparation(
+        _ preparation: inout AgentQueuePreparationState,
+        snapshot: AgentQueueState
+    ) {
+        let activeRecords = preparation.configuration.activeAgentIDs.compactMap {
+            preparation.record(agentID: $0)
+        }
+        let failures = activeRecords.filter { $0.phase == .failed }
+        preparation.completedWorkerCount = AgentQueueAgentID.workerIDs
+            .prefix(preparation.configuration.workerCount)
+            .filter { agentID in
+                preparation.isReady(agentID: agentID) && snapshot.bindings.contains(where: {
+                    $0.agentID == agentID && $0.readiness == .ready
+                })
+            }
+            .count
+        if !failures.isEmpty {
+            preparation.phase = .failed
+            preparation.errorMessage = failures.compactMap(\.errorMessage).joined(separator: "\n")
+        } else if preparation.configuration.activeAgentIDs.allSatisfy({ agentID in
+            preparation.isReady(agentID: agentID) && snapshot.bindings.contains(where: {
+                $0.agentID == agentID && $0.readiness == .ready
+            })
+        }) {
+            preparation.phase = .ready
+            preparation.errorMessage = nil
+        } else {
+            preparation.phase = .notPrepared
+            preparation.errorMessage = nil
+        }
+    }
+
+    private func currentPlannerSurfaceID(in snapshot: AgentQueueState) -> UUID {
+        snapshot.bindings.first(where: { $0.role == .planner })?.surfaceID ?? plannerSurfaceID
+    }
+
+    private func surfaceID(for agentID: String, topology: AgentQueuePreparedTopology) -> UUID? {
+        agentID == AgentQueueAgentID.planner
+            ? topology.plannerSurfaceID
+            : topology.workerSlots.first(where: { $0.agentID == agentID })?.surfaceID
+    }
+
+    private func surfaceID(for agentID: String, in snapshot: AgentQueueState) -> UUID? {
+        if agentID == AgentQueueAgentID.planner {
+            return currentPlannerSurfaceID(in: snapshot)
+        }
+        return snapshot.workers.first(where: { $0.id == agentID })?.surfaceID
     }
 
     private func preparationRecord(
         agentID: String,
-        surfaceID: UUID? = nil
+        surfaceID: UUID?
     ) -> AgentQueueAgentPreparationRecord {
         AgentQueueAgentPreparationRecord(
             agentID: agentID,
-            surfaceID: surfaceID ?? expectedSurfaceID(agentID: agentID),
+            surfaceID: surfaceID,
             appliedProfileFingerprint: nil,
             appliedRoleSkillFingerprint: nil,
             phase: .notPrepared,
@@ -981,46 +576,70 @@ final class AgentQueueController {
         )
     }
 
-    private func requiresPreparation(
+    private func roleFingerprint(
         agentID: String,
-        preparation: AgentQueuePreparationState
+        in fingerprints: [String: String]
+    ) -> String? {
+        fingerprints[
+            agentID == AgentQueueAgentID.planner
+                ? AgentQueueRoleSkill.planner.rawValue
+                : AgentQueueRoleSkill.worker.rawValue
+        ]
+    }
+
+    private static func awaitReady(
+        bindingID: String,
+        coordinator: AgentQueueCoordinator,
+        timeout: Duration,
+        sleep: @escaping @Sendable (Duration) async throws -> Void
     ) async -> Bool {
-        guard preparation.isReady(agentID: agentID),
-              let expectedSurfaceID = expectedSurfaceID(agentID: agentID),
-              preparation.record(agentID: agentID)?.surfaceID == expectedSurfaceID else {
+        if await coordinator.snapshot().bindings.contains(where: {
+            $0.bindingID == bindingID && $0.readiness == .ready
+        }) {
             return true
         }
-        return await paneAdapter.codexReadiness(surfaceID: expectedSurfaceID) != .idle
+        let updates = await coordinator.stateUpdates()
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await snapshot in updates {
+                    if snapshot.bindings.contains(where: {
+                        $0.bindingID == bindingID && $0.readiness == .ready
+                    }) {
+                        return true
+                    }
+                    if !snapshot.bindings.contains(where: { $0.bindingID == bindingID }) {
+                        return false
+                    }
+                }
+                return false
+            }
+            group.addTask {
+                do {
+                    try await sleep(timeout)
+                } catch {
+                    return false
+                }
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
     }
 
-    private func workerSlotsRequireReconciliation(
-        configuration: AgentQueuePreparationConfiguration
-    ) -> Bool {
-        let desiredIDs = Array(AgentQueueAgentID.workerIDs.prefix(configuration.workerCount))
-        return state.workers.map(\.id) != desiredIDs
-    }
-
-    private func finalizePreparationState() {
-        guard var preparation = state.preparation else { return }
-        let activeRecords = preparation.configuration.activeAgentIDs.compactMap {
-            preparation.record(agentID: $0)
+    private var isPreparationInProgress: Bool {
+        guard let phase = state.preparation?.phase else { return false }
+        return switch phase {
+        case .checkingSkills,
+             .awaitingSkillConfirmation,
+             .startingPlanner,
+             .startingWorkers,
+             .applyingSkills,
+             .waitingForIdle:
+            true
+        case .notPrepared, .ready, .failed:
+            false
         }
-        let failures = activeRecords.filter { $0.phase == .failed }
-        preparation.completedWorkerCount = AgentQueueAgentID.workerIDs
-            .prefix(preparation.configuration.workerCount)
-            .filter { preparation.isReady(agentID: $0) }
-            .count
-        if !failures.isEmpty {
-            preparation.phase = .failed
-            preparation.errorMessage = failures.compactMap(\.errorMessage).joined(separator: "\n")
-        } else if preparation.dirtyAgentIDs().isEmpty {
-            preparation.phase = .ready
-            preparation.errorMessage = nil
-        } else {
-            preparation.phase = .notPrepared
-            preparation.errorMessage = nil
-        }
-        state.preparation = preparation
     }
 
     private func missingSkillErrorMessage(path: String) -> String {
@@ -1033,101 +652,14 @@ final class AgentQueueController {
         )
     }
 
-    private func missingPreparationResultMessage(agentID: String) -> String {
+    private func readyTimeoutMessage(agentID: String) -> String {
         String(
             format: String(
-                localized: "agentQueue.preparation.error.missingAgentResult",
-                defaultValue: "Agent 준비 결과가 없습니다: %@"
+                localized: "agentQueue.preparation.error.readyTimeout",
+                defaultValue: "Agent ready handshake timed out: %@"
             ),
             agentID
         )
-    }
-
-    private func restorationErrorMessage(_ error: Error) -> String {
-        String(
-            format: String(
-                localized: "agentQueue.preparation.error.restoration",
-                defaultValue: "Agent Queue 상태를 복원하지 못했습니다: %@"
-            ),
-            error.localizedDescription
-        )
-    }
-
-    private func updatePreparation(
-        configuration: AgentQueuePreparationConfiguration,
-        phase: AgentQueuePreparationPhase,
-        completedWorkerCount: Int,
-        errorMessage: String?
-    ) {
-        var preparation = state.preparation ?? AgentQueuePreparationState(
-            configuration: configuration,
-            phase: phase,
-            completedWorkerCount: completedWorkerCount,
-            errorMessage: errorMessage
-        )
-        preparation.configuration = configuration
-        preparation.phase = phase
-        preparation.completedWorkerCount = completedWorkerCount
-        preparation.errorMessage = errorMessage
-        state.preparation = preparation
-    }
-
-    private func updatePreparationProgress(
-        _ progress: AgentQueuePreparationProgress,
-        configuration: AgentQueuePreparationConfiguration,
-        agentIDsToPrepare: Set<String>
-    ) {
-        updatePreparation(
-            configuration: configuration,
-            phase: progress.phase,
-            completedWorkerCount: progress.completedWorkerCount,
-            errorMessage: nil
-        )
-        guard let currentAgentID = progress.agentID,
-              var preparation = state.preparation else { return }
-        for agentID in agentIDsToPrepare {
-            var record = preparation.record(agentID: agentID) ?? preparationRecord(agentID: agentID)
-            record.phase = agentID == currentAgentID ? .preparing : .notPrepared
-            preparation = preparation.replacingRecord(record)
-        }
-        state.preparation = preparation
-    }
-
-    private func registerPreparedWorkers(_ slots: [AgentQueueWorkerSlot]) {
-        let existingByAgentID = Dictionary(uniqueKeysWithValues: state.workers.map { ($0.id, $0) })
-        let currentNow = now()
-        state.workers = slots.map { slot in
-            let index = AgentQueueAgentID.workerIDs.firstIndex(of: slot.agentID) ?? 0
-            if var existing = existingByAgentID[slot.agentID] {
-                existing.workspaceID = state.queue.workspaceID
-                existing.paneID = slot.surfaceID
-                existing.surfaceID = slot.surfaceID
-                existing.label = Self.workerLabel(index: index)
-                existing.enabled = true
-                existing.lastSeenAt = currentNow
-                return existing
-            }
-            return AgentWorker(
-                id: slot.agentID,
-                workspaceID: state.queue.workspaceID,
-                paneID: slot.surfaceID,
-                surfaceID: slot.surfaceID,
-                label: Self.workerLabel(index: index),
-                enabled: true,
-                status: .idle,
-                currentTaskID: nil,
-                lastSeenAt: currentNow
-            )
-        }
-    }
-
-    private func isAvailableTerminal(_ surfaceID: UUID) async -> Bool {
-        do {
-            _ = try await paneAdapter.readText(surfaceID: surfaceID, lines: 1)
-            return true
-        } catch {
-            return false
-        }
     }
 
     private func preparationErrorMessage(_ error: Error) -> String {
@@ -1136,8 +668,8 @@ final class AgentQueueController {
         }
         switch error {
         case let .invalidWorkerCount(count):
-            return String(
-                format: String(
+            return String.localizedStringWithFormat(
+                String(
                     localized: "agentQueue.preparation.error.invalidWorkerCount",
                     defaultValue: "Worker 수 %d은(는) 지원되지 않습니다."
                 ),
@@ -1185,191 +717,6 @@ final class AgentQueueController {
         }
     }
 
-    private var hasActiveTasks: Bool {
-        hasActiveWork
-    }
-
-    private var isWaitingForPlanner: Bool {
-        state.planningRequest?.phase == .waitingForPlanner
-    }
-
-    private var isPreparationInProgress: Bool {
-        guard let phase = state.preparation?.phase else { return false }
-        switch phase {
-        case .checkingSkills,
-             .awaitingSkillConfirmation,
-             .startingPlanner,
-             .startingWorkers,
-             .applyingSkills,
-             .waitingForIdle:
-            return true
-        case .notPrepared, .ready, .failed:
-            return false
-        }
-    }
-
-    private func importPlannerTasks(from text: String) async {
-        guard let request = state.planningRequest,
-              request.phase == .waitingForPlanner,
-              let detection = AgentQueuePlanDetector.detect(in: text) else {
-            return
-        }
-
-        switch detection {
-        case .success(let planned):
-            guard planned.requestID == request.requestID else { return }
-            let currentNow = now()
-            let tasks = planned.tasks.map { plannedTask in
-                let id = AgentTaskIDFactory.makeTaskID(now: currentNow, sequence: nextSequence)
-                nextSequence += 1
-                return AgentTask(
-                    id: id,
-                    queueID: state.queue.id,
-                    title: plannedTask.title,
-                    body: plannedTask.body,
-                    status: .queued,
-                    executionMode: .sequential,
-                    assignedWorkerSurfaceID: nil,
-                    dispatchAttemptCount: 0,
-                    recoveryAttemptCount: 0,
-                    timeoutSeconds: 1_800,
-                    retryLimit: 3,
-                    createdAt: currentNow,
-                    dispatchedAt: nil,
-                    completedAt: nil,
-                    lastError: nil
-                )
-            }
-            state.tasks.append(contentsOf: tasks)
-            state.events.append(contentsOf: tasks.map { task in
-                AgentQueueLogEvent(
-                    id: UUID().uuidString,
-                    queueID: state.queue.id,
-                    taskID: task.id,
-                    workerID: nil,
-                    type: .taskCreated,
-                    message: "created \(task.id)",
-                    evidence: nil,
-                    createdAt: currentNow
-                )
-            })
-            state.planningRequest = nil
-            plannerCorrectionRequestID = nil
-            state.queue.updatedAt = currentNow
-            persistSoon()
-
-        case .failure(let error):
-            await recoverPlannerResponseIfPossible(from: text, request: request, error: error)
-        }
-    }
-
-    private func recoverPlannerResponseIfPossible(
-        from text: String,
-        request: AgentQueuePlanningRequest,
-        error: AgentQueuePlanDetectionError
-    ) async {
-        guard error == .malformedJSON,
-              let fingerprint = AgentQueuePlanDetector.normalizedLatestPayload(in: text) else {
-            failPlannerResponse(requestID: request.requestID, error: error)
-            return
-        }
-
-        let requestIDText = request.requestID.uuidString.lowercased()
-        if fingerprint.contains("\"request_id\"") &&
-            !fingerprint.localizedCaseInsensitiveContains(requestIDText) {
-            return
-        }
-        guard fingerprint.localizedCaseInsensitiveContains(requestIDText),
-              fingerprint.contains("\"tasks\"") else {
-            failPlannerResponse(requestID: request.requestID, error: error)
-            return
-        }
-        guard rememberPlannerResponseFingerprint(fingerprint) else { return }
-        guard plannerCorrectionRequestID != request.requestID else {
-            failPlannerResponse(requestID: request.requestID, error: error)
-            return
-        }
-
-        plannerCorrectionRequestID = request.requestID
-        let correction = AgentQueueInstructionBuilder.plannerJSONCorrectionRequest(
-            requestID: request.requestID
-        )
-        do {
-            _ = try await paneAdapter.submitText(correction, to: state.queue.plannerSurfaceID)
-        } catch {
-            failPlannerResponse(requestID: request.requestID, error: .malformedJSON)
-        }
-    }
-
-    private func failPlannerResponse(
-        requestID: UUID,
-        error: AgentQueuePlanDetectionError
-    ) {
-        guard var request = state.planningRequest,
-              request.requestID == requestID,
-              request.phase == .waitingForPlanner else {
-            return
-        }
-        request.phase = .failed
-        request.errorMessage = planningResponseErrorMessage(error)
-        state.planningRequest = request
-        state.queue.updatedAt = now()
-        persistSoon()
-    }
-
-    private func planningSubmissionErrorMessage(_ error: Error) -> String {
-        String(
-            format: String(
-                localized: "agentQueue.input.submissionFailed",
-                defaultValue: "Could not send the goal to Planner: %@"
-            ),
-            error.localizedDescription
-        )
-    }
-
-    private func planningResponseErrorMessage(_: AgentQueuePlanDetectionError) -> String {
-        return String(
-            localized: "agentQueue.input.responseFailed",
-            defaultValue: "Could not import the Planner response."
-        )
-    }
-
-    private func makeFingerprint(taskID: String, surfaceID: UUID, excerpt: String) -> ReportFingerprint {
-        ReportFingerprint(
-            taskID: taskID,
-            surfaceID: surfaceID,
-            normalizedExcerpt: excerpt.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        )
-    }
-
-    private func remember(_ fingerprint: ReportFingerprint) -> Bool {
-        guard reportFingerprints.insert(fingerprint).inserted else { return false }
-
-        reportFingerprintOrder.append(fingerprint)
-        if reportFingerprintOrder.count > 512 {
-            let evicted = reportFingerprintOrder.removeFirst()
-            reportFingerprints.remove(evicted)
-        }
-        return true
-    }
-
-    private func rememberPlannerResponseFingerprint(_ fingerprint: String) -> Bool {
-        guard plannerResponseFingerprints.insert(fingerprint).inserted else { return false }
-
-        plannerResponseFingerprintOrder.append(fingerprint)
-        if plannerResponseFingerprintOrder.count > 64 {
-            let evicted = plannerResponseFingerprintOrder.removeFirst()
-            plannerResponseFingerprints.remove(evicted)
-        }
-        return true
-    }
-
-    private static func title(for body: String) -> String {
-        let collapsed = body.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        if collapsed.count <= 80 { return collapsed }
-        return "\(collapsed.prefix(80))…"
-    }
-
     private static func workerLabel(index: Int) -> String {
         String.localizedStringWithFormat(
             String(localized: "agentQueue.worker.defaultLabelFormat", defaultValue: "Worker %d"),
@@ -1379,23 +726,23 @@ final class AgentQueueController {
 }
 
 private extension AgentTaskStatus {
-    var isTerminal: Bool {
+    var isActiveForAgentQueuePreparation: Bool {
         switch self {
-        case .completed, .blocked, .failed, .cancelled:
-            return true
-        case .queued, .dispatching, .dispatched, .awaitingReport, .retrying:
-            return false
+        case .dispatching, .dispatched, .awaitingReport, .retrying:
+            true
+        case .queued, .completed, .blocked, .failed, .cancelled:
+            false
         }
     }
 }
 
 private extension AgentWorkerStatus {
-    var isActiveForPreparation: Bool {
+    var isActiveForAgentQueuePreparation: Bool {
         switch self {
         case .assigned, .running, .awaitingReport, .recovering:
-            return true
+            true
         case .idle, .offline:
-            return false
+            false
         }
     }
 }
@@ -1420,7 +767,6 @@ final class AgentQueueControllerFactory {
         if let existing = controllers[workspace.id] {
             return existing
         }
-
         let runtime = makeRuntime(
             workspace: workspace,
             tabManager: tabManager,
@@ -1438,9 +784,7 @@ final class AgentQueueControllerFactory {
         return runtime.controller
     }
 
-    func restorePersistedControllers(
-        _ candidates: [AgentQueueRestoreCandidate]
-    ) async {
+    func restorePersistedControllers(_ candidates: [AgentQueueRestoreCandidate]) async {
         for candidate in candidates where controllers[candidate.workspace.id] == nil {
             let persistence = persistence
             let persistenceID = candidate.persistenceID
@@ -1470,10 +814,7 @@ final class AgentQueueControllerFactory {
                 controllers.removeValue(forKey: candidate.workspace.id)
                 continue
             }
-            await registry.register(
-                runtime.coordinator,
-                workspaceID: candidate.workspace.id
-            )
+            await registry.register(runtime.coordinator, workspaceID: candidate.workspace.id)
             await runtime.controller.start()
             runtime.controller.startTopologyMonitoring()
         }
@@ -1485,6 +826,7 @@ final class AgentQueueControllerFactory {
         persistenceID: UUID,
         legacyWorkspaceID: UUID?
     ) -> (controller: AgentQueueController, coordinator: AgentQueueCoordinator) {
+        let plannerSurfaceID = workspace.focusedPanelId ?? UUID()
         let initialState = makeInitialState(workspace: workspace)
         let paneAdapter = AppAgentQueuePaneAdapter(tabManager: tabManager)
         let coordinator = AgentQueueCoordinator(
@@ -1500,17 +842,17 @@ final class AgentQueueControllerFactory {
         )
         let controller = AgentQueueController(
             initialState: initialState,
+            plannerSurfaceID: plannerSurfaceID,
             paneAdapter: paneAdapter,
-            store: nil,
+            coordinator: coordinator,
+            effectExecutor: effectExecutor,
             roleSkillInstaller: roleSkillInstaller,
             workerPreparer: AgentQueueWorkerPreparationService(
                 workspace: workspace,
                 tabManager: tabManager
             ),
             skillCatalog: skillCatalog,
-            skillRootDirectory: workspace.currentDirectory,
-            coordinator: coordinator,
-            effectExecutor: effectExecutor
+            skillRootDirectory: workspace.currentDirectory
         )
         let topologyReconciler = AgentQueueTopologyReconciler(
             workspaceID: workspace.id,
@@ -1543,18 +885,14 @@ final class AgentQueueControllerFactory {
 
     private func makeInitialState(workspace: Workspace) -> AgentQueueState {
         let currentNow = Date()
-        let plannerSurfaceID = workspace.focusedPanelId
-            ?? UUID()
-        let queue = AgentQueue(
-            id: "queue-\(workspace.id.uuidString.lowercased())",
-            workspaceID: workspace.id,
-            plannerSurfaceID: plannerSurfaceID,
-            status: .paused,
-            createdAt: currentNow,
-            updatedAt: currentNow
-        )
         return AgentQueueState(
-            queue: queue,
+            queue: AgentQueue(
+                id: "queue-\(workspace.id.uuidString.lowercased())",
+                workspaceID: workspace.id,
+                status: .running,
+                createdAt: currentNow,
+                updatedAt: currentNow
+            ),
             tasks: [],
             workers: [],
             events: [],

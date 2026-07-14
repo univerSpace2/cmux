@@ -280,7 +280,6 @@ private struct CoordinatorFixture {
         let queue = AgentQueue(
             id: "queue-1",
             workspaceID: workspaceID,
-            plannerSurfaceID: plannerSurfaceID,
             status: .running,
             createdAt: now,
             updatedAt: now

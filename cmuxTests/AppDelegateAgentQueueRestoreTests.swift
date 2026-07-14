@@ -122,7 +122,6 @@ struct AppDelegateAgentQueueRestoreTests {
             queue: AgentQueue(
                 id: "queue-persisted",
                 workspaceID: workspace.id,
-                plannerSurfaceID: workspace.focusedPanelId ?? UUID(),
                 status: .paused,
                 createdAt: now,
                 updatedAt: now

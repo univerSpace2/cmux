@@ -62,13 +62,11 @@ struct AgentQueuePreparationSnapshot: Equatable, Sendable {
     let errorMessage: String?
     let showsRetry: Bool
     let isPreparing: Bool
-    let isStartDisabled: Bool
     let isWorkerCountDecreaseDisabled: Bool
     let isWorkerCountIncreaseDisabled: Bool
 
     init(
         preparation: AgentQueuePreparationState?,
-        canStart: Bool,
         canEditProfiles: Bool = true,
         hasActiveWork: Bool = false
     ) {
@@ -93,7 +91,6 @@ struct AgentQueuePreparationSnapshot: Equatable, Sendable {
         errorMessage = preparation.errorMessage
         showsRetry = preparation.phase == .failed
         isPreparing = preparation.phase.isInProgress
-        isStartDisabled = !canStart
         isWorkerCountDecreaseDisabled = isPreparing || hasActiveWork || workerCount <= 1
         isWorkerCountIncreaseDisabled = isPreparing || workerCount >= 4
 
@@ -147,7 +144,6 @@ struct AgentQueueSidebarView: View {
     private var preparationSnapshot: AgentQueuePreparationSnapshot {
         AgentQueuePreparationSnapshot(
             preparation: controller.state.preparation,
-            canStart: controller.canStart,
             canEditProfiles: controller.canEditProfiles,
             hasActiveWork: controller.hasActiveWork
         )

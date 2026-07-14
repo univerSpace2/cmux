@@ -231655,6 +231655,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "Planner の登録が失われたため、キューを一時停止しました。" } }
       }
     },
+    "agentQueue.preparation.error.readyTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent ready handshake timed out: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Agent の準備ハンドシェイクがタイムアウトしました: %@" } }
+      }
+    },
+    "agentQueue.preparation.error.missingBinding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Missing Agent Queue binding surface or profile: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Agent Queue のバインディング、サーフェス、またはプロファイルがありません: %@" } }
+      }
+    },
     "agentQueue.input.title": {
       "extractionState": "manual",
       "localizations": {
@@ -235911,121 +235925,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함한 완료 보고를 현재 대화에 직접 출력하세요.\nAgent Queue가 worker pane의 보고를 감지해 planner pane으로 자동 전달합니다.\n다른 pane으로 직접 전송하지 마세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+            "value": "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함한 완료 보고를 현재 대화에 직접 출력하세요.\nAgent Queue가 worker pane의 보고를 감지해 planner pane으로 자동 전달합니다.\n다른 pane으로 직접 전송하지 마세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [task_id]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [%@]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
+            "value": "Task: %@\n\nWhen finished, print a completion report containing the task_id below directly in the current conversation.\nAgent Queue detects the report in the worker pane and forwards it to the planner pane automatically.\nDo not send it directly to another pane.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\nCompletion report format:\n완료 보고 [task_id]: <summary>. Changed/created: <paths or none>. Verification: <evidence>. Not run: <reason>. Caution: <follow-up>.\n"
           }
         }
       }

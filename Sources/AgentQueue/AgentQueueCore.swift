@@ -14,14 +14,6 @@ enum AgentQueueInputEvent: Equatable, Sendable {
     case recoverySubmissionFailed(taskID: String, workerID: String, bindingID: String, message: String)
     case taskTimedOut(taskID: String, bindingID: String)
     case taskCancelled(taskID: String)
-
-    // Temporary source-compatibility cases. The screen protocol callers are
-    // removed after the CLI coordinator is fully wired.
-    case queueStarted
-    case reportDetected(AgentQueueDetectedReport)
-    case ignoredReport(surfaceID: UUID, excerpt: String, reason: String)
-    case timeout(taskID: String)
-    case recoverySent(taskID: String)
 }
 
 enum AgentQueueSideEffect: Equatable, Sendable {
@@ -54,7 +46,7 @@ struct AgentQueueCore: Sendable {
         case .queuePaused:
             state.queue.status = .paused
 
-        case .queueResumed, .queueStarted:
+        case .queueResumed:
             state.queue.status = .running
             effects = scheduleNextTasks(state: &state, now: now)
 
@@ -137,34 +129,6 @@ struct AgentQueueCore: Sendable {
                 effects = scheduleNextTasks(state: &state, now: now)
             }
 
-        case let .reportDetected(report):
-            effects = applyLegacyReport(report, to: &state, now: now)
-
-        case .ignoredReport:
-            break
-
-        case let .timeout(taskID):
-            guard let bindingID = state.workers.first(where: { $0.currentTaskID == taskID })?.bindingID else {
-                break
-            }
-            return reduce(
-                state: state,
-                event: .taskTimedOut(taskID: taskID, bindingID: bindingID),
-                now: now
-            )
-
-        case let .recoverySent(taskID):
-            guard let worker = state.workers.first(where: { $0.currentTaskID == taskID }),
-                  let bindingID = worker.bindingID else { break }
-            return reduce(
-                state: state,
-                event: .recoverySubmitted(
-                    taskID: taskID,
-                    workerID: worker.id,
-                    bindingID: bindingID
-                ),
-                now: now
-            )
         }
 
         appendEvents(for: event, state: &state, now: now)
@@ -309,37 +273,6 @@ struct AgentQueueCore: Sendable {
         }
     }
 
-    private func applyLegacyReport(
-        _ report: AgentQueueDetectedReport,
-        to state: inout AgentQueueState,
-        now: Date
-    ) -> [AgentQueueSideEffect] {
-        guard let worker = state.workers.first(where: { $0.currentTaskID == report.taskID }),
-              let bindingID = worker.bindingID else { return [] }
-        let status: AgentQueueReportStatus
-        switch report.kind {
-        case .completed:
-            status = .completed
-        case .blocked:
-            status = .blocked
-        case .running, .unmatched:
-            return []
-        }
-        return applyReport(
-            AgentQueueTaskReport(
-                reportID: "legacy-\(state.reports.count + 1)",
-                taskID: report.taskID,
-                status: status,
-                body: report.excerpt,
-                bindingID: bindingID,
-                attemptNumber: 1,
-                reportedAt: now
-            ),
-            to: &state,
-            now: now
-        )
-    }
-
     private func scheduleNextTasks(
         state: inout AgentQueueState,
         now: Date
@@ -479,7 +412,7 @@ struct AgentQueueCore: Sendable {
             for task in tasks {
                 appendEvent(type: .taskCreated, taskID: task.id, workerID: nil, state: &state, now: now)
             }
-        case .queueResumed, .queueStarted:
+        case .queueResumed:
             appendEvent(type: .queueStarted, taskID: nil, workerID: nil, state: &state, now: now)
         case .queuePaused:
             appendEvent(type: .queuePaused, taskID: nil, workerID: nil, state: &state, now: now)
@@ -497,16 +430,13 @@ struct AgentQueueCore: Sendable {
                 state: &state,
                 now: now
             )
-        case let .recoverySubmitted(taskID, _, _),
-             let .recoverySent(taskID):
+        case let .recoverySubmitted(taskID, _, _):
             appendEvent(type: .recoverySent, taskID: taskID, workerID: workerIDOrNil(event), state: &state, now: now)
-        case let .taskTimedOut(taskID, _), let .timeout(taskID):
+        case let .taskTimedOut(taskID, _):
             appendEvent(type: .timeout, taskID: taskID, workerID: nil, state: &state, now: now)
         case let .taskCancelled(taskID):
             appendEvent(type: .taskCancelled, taskID: taskID, workerID: nil, state: &state, now: now)
-        case let .reportDetected(report):
-            appendEvent(type: .reportDetected, taskID: report.taskID, workerID: nil, state: &state, now: now)
-        case .bindingsPrepared, .agentReady, .agentRemoved, .ignoredReport:
+        case .bindingsPrepared, .agentReady, .agentRemoved:
             break
         }
     }

@@ -35,36 +35,6 @@ struct AgentQueueCodexReadinessClassifier: Sendable {
         }
     }
 
-    static func classify(
-        observedState: AgentQueueObservedCodexState?,
-        shellActivity: AgentQueueShellActivity,
-        visibleText: String = "",
-        visibleReadyFallbackAllowed: Bool = true,
-        observedIdleAllowed: Bool = true
-    ) -> AgentQueueCodexReadiness {
-        if observedState == .idle, !observedIdleAllowed {
-            return .starting
-        }
-        if observedState == nil,
-           visibleReadyFallbackAllowed,
-           shellActivity == .commandRunning,
-           visibleText.contains("OpenAI Codex"),
-           visibleText.split(whereSeparator: \Character.isNewline).contains(where: {
-               $0.contains("· Ready ·")
-           }) {
-            return .idle
-        }
-        return AgentQueueCodexReadinessClassifier().classify(
-            observedState: observedState,
-            shellActivity: shellActivity
-        )
-    }
-}
-
-struct AgentQueueSurfaceTextSnapshot: Equatable, Sendable {
-    var surfaceID: UUID
-    var text: String
-    var capturedAt: Date
 }
 
 struct AgentQueueSendResult: Equatable, Sendable {
@@ -85,20 +55,23 @@ enum AgentQueuePromptSubmission {
 protocol AgentQueuePaneAdapting: AnyObject, Sendable {
     func submitText(_ text: String, to surfaceID: UUID) async throws -> AgentQueueSendResult
     func submitShellCommand(_ command: String, to surfaceID: UUID) async throws -> AgentQueueSendResult
-    func readText(surfaceID: UUID, lines: Int) async throws -> AgentQueueSurfaceTextSnapshot
     func codexReadiness(surfaceID: UUID) async -> AgentQueueCodexReadiness
+    func observedCodexSessionID(surfaceID: UUID) async -> String?
 }
 
 extension AgentQueuePaneAdapting {
     func codexReadiness(surfaceID: UUID) async -> AgentQueueCodexReadiness {
         .absent
     }
+
+    func observedCodexSessionID(surfaceID _: UUID) async -> String? {
+        nil
+    }
 }
 
 enum AgentQueuePaneAdapterError: LocalizedError, Equatable {
     case surfaceUnavailable(UUID)
     case surfaceNotTerminal(UUID)
-    case readUnavailable(UUID)
 
     var errorDescription: String? {
         switch self {
@@ -106,8 +79,6 @@ enum AgentQueuePaneAdapterError: LocalizedError, Equatable {
             return "Agent Queue surface unavailable: \(id.uuidString)"
         case .surfaceNotTerminal(let id):
             return "Agent Queue surface is not terminal: \(id.uuidString)"
-        case .readUnavailable(let id):
-            return "Agent Queue surface text unavailable: \(id.uuidString)"
         }
     }
 }
@@ -171,44 +142,11 @@ final class AppAgentQueuePaneAdapter: AgentQueuePaneAdapting {
         )
     }
 
-    func readText(surfaceID: UUID, lines: Int) async throws -> AgentQueueSurfaceTextSnapshot {
-        guard let terminalPanel = terminalPanel(surfaceID: surfaceID) else {
-            throw AgentQueuePaneAdapterError.readUnavailable(surfaceID)
-        }
-        guard let rawSnapshot = TerminalController.shared.readTerminalTextRawSnapshot(
-            terminalPanel: terminalPanel,
-            includeScrollback: true
-        ) else {
-            throw AgentQueuePaneAdapterError.readUnavailable(surfaceID)
-        }
-
-        let payload = TerminalController.terminalTextPayload(
-            from: rawSnapshot,
-            includeScrollback: true,
-            lineLimit: lines
-        )
-        switch payload {
-        case .success(let value):
-            return AgentQueueSurfaceTextSnapshot(surfaceID: surfaceID, text: value.text, capturedAt: Date())
-        case .failure:
-            throw AgentQueuePaneAdapterError.readUnavailable(surfaceID)
-        }
-    }
-
     func codexReadiness(surfaceID: UUID) async -> AgentQueueCodexReadiness {
         guard let terminalPanel = terminalPanel(surfaceID: surfaceID) else { return .absent }
         let shellActivity = shellActivity(for: terminalPanel)
         let classifier = AgentQueueCodexReadinessClassifier()
-        if let service = TerminalController.shared.agentChatTranscriptService {
-            _ = await service.observeAgentProcessesForListing(
-                surfaceIDs: [surfaceID],
-                waitUpTo: .seconds(1)
-            )
-            if let record = service.sessionRecords(workspaceID: nil).first(where: { record in
-                record.agentKind == .codex &&
-                    record.state != .ended &&
-                    record.surfaceID.flatMap(UUID.init(uuidString:)) == surfaceID
-            }) {
+        if let record = await observedCodexRecord(surfaceID: surfaceID) {
                 let observedState: AgentQueueObservedCodexState
                 switch record.state {
                 case .idle:
@@ -227,13 +165,31 @@ final class AppAgentQueuePaneAdapter: AgentQueuePaneAdapting {
                     observedState: observedState,
                     shellActivity: shellActivity
                 )
-            }
         }
 
         return classifier.classify(
             observedState: nil,
             shellActivity: shellActivity
         )
+    }
+
+    func observedCodexSessionID(surfaceID: UUID) async -> String? {
+        await observedCodexRecord(surfaceID: surfaceID)?.sessionID
+    }
+
+    private func observedCodexRecord(surfaceID: UUID) async -> AgentChatSessionRecord? {
+        guard let service = TerminalController.shared.agentChatTranscriptService else {
+            return nil
+        }
+        _ = await service.observeAgentProcessesForListing(
+            surfaceIDs: [surfaceID],
+            waitUpTo: .seconds(1)
+        )
+        return service.sessionRecords(workspaceID: nil).first(where: { record in
+            record.agentKind == .codex &&
+                record.state != .ended &&
+                record.surfaceID.flatMap(UUID.init(uuidString:)) == surfaceID
+        })
     }
 
     private func terminalPanel(surfaceID: UUID) -> TerminalPanel? {

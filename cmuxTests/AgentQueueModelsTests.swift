@@ -42,7 +42,6 @@ final class AgentQueueModelsTests: XCTestCase {
         let queue = AgentQueue(
             id: "queue-workspace-1",
             workspaceID: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
-            plannerSurfaceID: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
             status: .paused,
             createdAt: now,
             updatedAt: now
@@ -64,7 +63,7 @@ final class AgentQueueModelsTests: XCTestCase {
             completedAt: nil,
             lastError: nil
         )
-        var state = AgentQueueState(
+        let state = AgentQueueState(
             queue: queue,
             tasks: [task],
             workers: [],
@@ -76,14 +75,6 @@ final class AgentQueueModelsTests: XCTestCase {
                 errorMessage: nil
             )
         )
-        state.planningRequest = AgentQueuePlanningRequest(
-            requestID: UUID(uuidString: "11111111-2222-3333-4444-555555555555")!,
-            goal: "Build search",
-            phase: .waitingForPlanner,
-            createdAt: now,
-            errorMessage: nil
-        )
-
         let data = try JSONEncoder.agentQueue.encode(state)
         let decoded = try JSONDecoder.agentQueue.decode(AgentQueueState.self, from: data)
 
@@ -96,7 +87,6 @@ final class AgentQueueModelsTests: XCTestCase {
             queue: AgentQueue(
                 id: "queue-workspace-1",
                 workspaceID: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
-                plannerSurfaceID: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
                 status: .paused,
                 createdAt: now,
                 updatedAt: now
@@ -119,7 +109,6 @@ final class AgentQueueModelsTests: XCTestCase {
         let decoded = try JSONDecoder.agentQueue.decode(AgentQueueState.self, from: legacyData)
 
         XCTAssertNil(decoded.preparation)
-        XCTAssertNil(decoded.planningRequest)
     }
 
     func testLegacyAdditionalSkillMigratesToEveryWorkerOnly() throws {

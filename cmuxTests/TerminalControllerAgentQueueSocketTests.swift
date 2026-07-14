@@ -242,7 +242,6 @@ struct TerminalControllerAgentQueueSocketTests {
             queue: AgentQueue(
                 id: "queue-\(workspaceID.uuidString.lowercased())",
                 workspaceID: workspaceID,
-                plannerSurfaceID: surfaceID,
                 status: .running,
                 createdAt: now,
                 updatedAt: now

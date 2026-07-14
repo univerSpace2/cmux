@@ -11,17 +11,16 @@ enum AgentQueueInstructionBuilder {
         let instruction = String(
             format: String(
                 localized: "agentQueue.instruction.workerCurrentPane",
-                defaultValue: "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함한 완료 보고를 현재 대화에 직접 출력하세요.\nAgent Queue가 worker pane의 보고를 감지해 planner pane으로 자동 전달합니다.\n다른 pane으로 직접 전송하지 마세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [%@]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
+                defaultValue: "작업지시: %@\n\n완료 후 반드시 아래 task_id를 포함한 완료 보고를 현재 대화에 직접 출력하세요.\nAgent Queue가 worker pane의 보고를 감지해 planner pane으로 자동 전달합니다.\n다른 pane으로 직접 전송하지 마세요.\n\n[AGENT_QUEUE_TASK]\ntask_id: %@\nworker_surface_id: surface:%@\nreport_target: current_pane\nreport_required: true\n[/AGENT_QUEUE_TASK]\n\n완료 보고 형식:\n완료 보고 [task_id]: <요약>. 변경/생성: <paths or none>. 검증: <evidence>. 미실행: <reason>. 주의: <follow-up>.\n"
             ),
             context.task.body,
             context.task.id,
-            context.workerSurfaceID.uuidString.lowercased(),
-            context.task.id
+            context.workerSurfaceID.uuidString.lowercased()
         )
-        return "\(AgentQueueSkillPromptBuilder.prompt(role: .worker, profile: context.profile))\n\(instruction)"
+        return instruction
     }
 
-    static func recoveryPrompt(task: AgentTask, profile: AgentQueueAgentProfile) -> String {
+    static func recoveryPrompt(task: AgentTask, profile _: AgentQueueAgentProfile) -> String {
         let instruction = String(
             format: String(
                 localized: "agentQueue.instruction.recoveryCurrentPane",
@@ -29,60 +28,14 @@ enum AgentQueueInstructionBuilder {
             ),
             task.id
         )
-        return "\(AgentQueueSkillPromptBuilder.prompt(role: .worker, profile: profile))\n\(instruction)"
+        return instruction
     }
 
     static func plannerInstruction(
         _ instruction: String,
-        profile: AgentQueueAgentProfile
+        profile _: AgentQueueAgentProfile
     ) -> String {
-        "\(AgentQueueSkillPromptBuilder.prompt(role: .planner, profile: profile))\n\(instruction)"
+        instruction
     }
 
-    static func plannerRequest(
-        goal: String,
-        requestID: UUID,
-        profile: AgentQueueAgentProfile
-    ) -> String {
-        let id = requestID.uuidString.lowercased()
-        let instruction = """
-        사용자 목표를 실행 가능한 작업으로 분해하세요.
-
-        [AGENT_QUEUE_PLAN_REQUEST]
-        request_id: \(id)
-        goal:
-        \(goal)
-        [/AGENT_QUEUE_PLAN_REQUEST]
-
-        \(plannerResponseContract(requestID: id))
-        """
-        return plannerInstruction(instruction, profile: profile)
-    }
-
-    static func plannerJSONCorrectionRequest(requestID: UUID) -> String {
-        let id = requestID.uuidString.lowercased()
-        return """
-        이전 [AGENT_QUEUE_TASKS] 응답이 strict JSON 파싱에 실패했습니다.
-        설명이나 사과 없이 동일한 request_id와 전체 tasks를 사용해 블록 전체를 한 번만 다시 출력하세요.
-
-        \(plannerResponseContract(requestID: id))
-        """
-    }
-
-    private static func plannerResponseContract(requestID: String) -> String {
-        """
-        설명이나 Markdown 코드 펜스 없이 다음 형식만 출력하세요.
-        출력은 RFC 8259에 맞는 유효한 JSON이어야 합니다.
-        title과 body 값 내부에서는 다음 문자를 반드시 JSON 이스케이프로 표현하세요:
-        - 일반 공백(U+0020): \\u0020
-        - 큰따옴표(U+0022): \\u0022
-        - 역슬래시(U+005C): \\u005c
-        - 줄바꿈: \\n
-        JSON 문법을 구성하는 큰따옴표 외에는 raw 큰따옴표를 title과 body에 넣지 마세요.
-        출력 직전 전체 JSON을 strict parser로 검증하고, 실패하면 고친 뒤 출력하세요.
-        [AGENT_QUEUE_TASKS]
-        {"space_encoding":"unicode_escape","request_id":"\(requestID)","tasks":[{"title":"작업\\u0020제목","body":"검증:\\u0020rtk\\u0020rg\\u0020-n\\u0020\\u0022pattern\\u0022\\u0020file"}]}
-        마지막 줄은 같은 이름 앞에 /를 붙인 종료 표식으로 닫으세요.
-        """
-    }
 }
